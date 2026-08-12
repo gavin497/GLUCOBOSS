@@ -1,0 +1,115 @@
+:root {
+  --bg: #f4f7f9;
+  --surface: #ffffff;
+  --ink: #10232f;
+  --muted: #667985;
+  --border: #dce5ea;
+  --accent: #00a889;
+  --accent-dark: #087966;
+  --accent-soft: #e9f8f4;
+  --warning: #b77000;
+  --shadow: 0 10px 30px rgba(20, 48, 63, 0.08);
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+button { font: inherit; }
+
+.pageShell { max-width: 1180px; margin: 0 auto; padding: 24px 20px 110px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.brand { font-size: 28px; font-weight: 900; letter-spacing: -0.04em; }
+.brand span { color: var(--accent); }
+.subtitle { color: var(--muted); font-size: 14px; margin-top: 3px; }
+.profileButton { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; font-weight: 800; }
+
+.glucoseHero { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 18px; align-items: end; background: linear-gradient(135deg, #10232f, #173a47); color: white; padding: 28px; border-radius: 28px; box-shadow: var(--shadow); }
+.readingGroup { display: flex; flex-direction: column; }
+.readingGroup strong { font-size: clamp(48px, 8vw, 82px); line-height: 0.95; letter-spacing: -0.06em; }
+.readingGroup.current strong { font-size: clamp(64px, 10vw, 104px); }
+.eyebrow { font-size: 12px; font-weight: 900; letter-spacing: .12em; opacity: .78; }
+.unit { margin-top: 6px; opacity: .72; font-size: 14px; }
+.currentLine { display: flex; gap: 16px; align-items: center; }
+.trend { font-size: 52px; color: #5fe2c9; line-height: 1; }
+.changeBadge { align-self: center; justify-self: end; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 14px 16px; border-radius: 18px; font-size: 24px; font-weight: 900; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); }
+.graphCard { margin-top: 18px; padding: 22px; }
+.cardHeader { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.cardHeader h2, .actionNow h2, .modalSheet h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
+.cardHeader p, .actionNow p { margin: 5px 0 0; color: var(--muted); }
+.statusPill { background: var(--accent-soft); color: var(--accent-dark); border-radius: 999px; padding: 8px 12px; font-weight: 900; font-size: 12px; }
+.graphCard svg { width: 100%; height: 190px; margin-top: 16px; overflow: visible; }
+.glucoseLine { stroke: var(--accent); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+.glucoseDot { fill: var(--surface); stroke: var(--accent); stroke-width: 3; }
+.targetLine { stroke: #e7eef1; stroke-width: 1.5; stroke-dasharray: 8 8; }
+.timeAxis { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 700; }
+
+.metricsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+.metricCard { padding: 22px; }
+.metricTitle { color: var(--muted); font-weight: 900; letter-spacing: .08em; font-size: 12px; }
+.metricValue { font-size: 54px; font-weight: 900; letter-spacing: -.06em; margin-top: 8px; }
+.metricValue span { font-size: 17px; letter-spacing: 0; color: var(--muted); }
+.miniRows { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
+.miniRows div { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; font-size: 14px; }
+.miniRows span { color: var(--muted); }
+.actionButton, .confirmButton { width: 100%; min-height: 58px; border: 0; border-radius: 18px; background: var(--accent); color: white; font-weight: 900; margin-top: 16px; cursor: pointer; }
+.actionButton:hover, .confirmButton:hover { background: var(--accent-dark); }
+
+.actionNow { margin-top: 18px; padding: 22px; display: flex; justify-content: space-between; gap: 20px; align-items: center; border: 2px solid #9ddfce; background: linear-gradient(135deg, #fff, #f2fbf8); }
+.actionNow h2 { color: var(--accent-dark); margin-top: 4px; font-size: 34px; }
+.voiceButton { min-width: 140px; min-height: 62px; border-radius: 18px; border: 1px solid var(--border); background: #fff; font-weight: 900; cursor: pointer; }
+
+.timelineCard { margin-top: 18px; padding: 22px; }
+.timeline { margin-top: 10px; }
+.timelineItem { display: grid; grid-template-columns: 62px 42px 1fr; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--border); }
+.timelineItem:last-child { border-bottom: 0; }
+.timelineTime { color: var(--muted); font-weight: 800; }
+.timelineIcon { font-size: 23px; }
+.timelineItem strong, .timelineItem span { display: block; }
+.timelineItem span { margin-top: 3px; color: var(--muted); font-size: 13px; }
+
+.modalBackdrop { position: fixed; inset: 0; background: rgba(7, 23, 31, .68); display: grid; place-items: center; z-index: 50; padding: 18px; backdrop-filter: blur(4px); }
+.modalSheet { position: relative; width: min(620px, 100%); max-height: 92vh; overflow: auto; background: #fff; border-radius: 30px; padding: 28px; box-shadow: 0 30px 80px rgba(0,0,0,.28); }
+.modalSheet h2 { font-size: 34px; margin-top: 6px; }
+.modalIntro { color: var(--muted); margin-top: 7px; }
+.closeButton { position: absolute; top: 16px; right: 16px; width: 42px; height: 42px; border-radius: 50%; border: 0; background: #edf2f4; font-size: 28px; cursor: pointer; }
+.bigButtonGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+.bigButtonGrid button { min-height: 82px; border: 2px solid var(--border); border-radius: 20px; background: white; color: var(--ink); font-size: 30px; font-weight: 900; cursor: pointer; }
+.bigButtonGrid button.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); box-shadow: inset 0 0 0 1px var(--accent); }
+.bigButtonGrid .other { background: #eef3f5; }
+.confirmButton:disabled { background: #c7d2d8; cursor: not-allowed; }
+.secondaryButton { width: 100%; min-height: 52px; border: 1px solid var(--border); border-radius: 16px; background: #fff; font-weight: 800; margin-top: 10px; cursor: pointer; }
+
+.mobileDock { display: none; }
+
+@media (max-width: 720px) {
+  .pageShell { padding: 14px 12px 100px; }
+  .topbar { margin-bottom: 14px; }
+  .brand { font-size: 24px; }
+  .subtitle { display: none; }
+  .glucoseHero { grid-template-columns: .8fr 1.2fr; padding: 20px 16px; border-radius: 22px; gap: 8px; }
+  .changeBadge { position: absolute; right: 24px; margin-top: 92px; font-size: 16px; padding: 8px 10px; }
+  .readingGroup strong { font-size: 44px; }
+  .readingGroup.current strong { font-size: 64px; }
+  .trend { font-size: 36px; }
+  .unit { font-size: 12px; }
+  .graphCard { padding: 16px; }
+  .graphCard svg { height: 150px; }
+  .metricsGrid { grid-template-columns: 1fr; gap: 12px; }
+  .metricCard { padding: 18px; }
+  .metricValue { font-size: 46px; }
+  .actionNow { align-items: stretch; flex-direction: column; padding: 18px; }
+  .actionNow h2 { font-size: 30px; }
+  .voiceButton { width: 100%; }
+  .timelineCard { padding: 18px; }
+  .timelineItem { grid-template-columns: 48px 34px 1fr; }
+  .modalBackdrop { align-items: end; padding: 0; }
+  .modalSheet { width: 100%; max-height: 94vh; border-radius: 28px 28px 0 0; padding: 24px 16px 28px; }
+  .modalSheet h2 { font-size: 31px; padding-right: 42px; }
+  .bigButtonGrid { gap: 10px; }
+  .bigButtonGrid button { min-height: 76px; font-size: 29px; }
+  .mobileDock { position: fixed; display: grid; grid-template-columns: repeat(3, 1fr); left: 12px; right: 12px; bottom: 12px; z-index: 20; background: rgba(16,35,47,.95); border-radius: 20px; padding: 8px; box-shadow: 0 16px 50px rgba(0,0,0,.25); backdrop-filter: blur(10px); }
+  .mobileDock button { border: 0; background: transparent; color: white; min-height: 58px; font-size: 20px; font-weight: 900; }
+  .mobileDock span { display: block; font-size: 11px; margin-top: 2px; }
+}
