@@ -12,14 +12,19 @@ const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
 
 function trendArrow(trend?: string, delta = 0) {
-  const t = (trend ?? '').toLowerCase();
+  const t = (trend ?? '').toLowerCase().replace(/[^a-z]/g, '');
+
+  // Nightscout/Dexcom directions. Check diagonal values before generic up/down
+  // so FortyFiveDown does not get caught by the broader "down" match.
   if (t.includes('doubleup')) return '⇈';
-  if (t.includes('up') || t.includes('rise')) return '↑';
-  if (t.includes('fortyfiveup') || t.includes('slightup')) return '↗';
+  if (t.includes('fortyfiveup') || t.includes('slightup') || t.includes('singelup')) return '↗';
+  if (t === 'up' || t.includes('singleup') || t.includes('rise')) return '↑';
   if (t.includes('doubledown')) return '⇊';
-  if (t.includes('down') || t.includes('fall')) return '↓';
   if (t.includes('fortyfivedown') || t.includes('slightdown')) return '↘';
+  if (t === 'down' || t.includes('singledown') || t.includes('fall')) return '↓';
   if (t.includes('flat') || t.includes('steady')) return '→';
+
+  // Fallback only when the source gives no usable direction string.
   if (delta >= 8) return '↗';
   if (delta <= -8) return '↘';
   return '→';
