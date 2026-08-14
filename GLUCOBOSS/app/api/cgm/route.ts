@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 
-const CGM_URL = 'https://jazzcgm.up.railway.app/';
+const NIGHTSCOUT_BASE = 'https://jazzcgm.up.railway.app';
+const NIGHTSCOUT_ENDPOINTS = [
+  '/api/v1/entries/sgv.json?count=144',
+  '/api/v1/entries.json?count=144',
+];
 
 type Reading = {
   glucose: number;
@@ -8,58 +12,22 @@ type Reading = {
   trend?: string;
 };
 
-function toNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-function normalizeTimestamp(value: unknown): string {
-  if (typeof value === 'number') {
-    const ms = value < 10_000_000_000 ? value * 1000 : value;
-    return new Date(ms).toISOString();
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-  }
-  return new Date().toISOString();
-}
-
-function normalizeOne(input: any): Reading | null {
+function normalizeEntry(input: any): Reading | null {
   if (!input || typeof input !== 'object') return null;
+  const raw = input.sgv ?? input.glucose ?? input.mgdl ?? input.value;
+  const glucose = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(glucose)) return null;
 
-  const rawGlucose =
-    input.glucose ??
-    input.mgdl ??
-    input.mg_dl ??
-    input.sgv ??
-    input.value ??
-    input.currentGlucose ??
-    input.current_glucose ??
-    input.reading;
+  const rawTime = input.date ?? input.dateString ?? input.timestamp ?? input.created_at;
+  let timestamp = new Date().toISOString();
+  if (typeof rawTime === 'number') {
+    timestamp = new Date(rawTime < 10_000_000_000 ? rawTime * 1000 : rawTime).toISOString();
+  } else if (typeof rawTime === 'string') {
+    const parsed = new Date(rawTime);
+    if (!Number.isNaN(parsed.getTime())) timestamp = parsed.toISOString();
+  }
 
-  let glucose = toNumber(rawGlucose);
-  if (glucose == null) return null;
-
-  const unit = String(input.unit ?? input.units ?? '').toLowerCase();
-  if (unit.includes('mmol')) glucose = Math.round(glucose * 18.0182);
-
-  const timestamp = normalizeTimestamp(
-    input.timestamp ??
-      input.time ??
-      input.datetime ??
-      input.dateString ??
-      input.date ??
-      input.created_at ??
-      input.createdAt
-  );
-
-  const trend = input.trend ?? input.direction ?? input.trendArrow ?? input.trend_arrow;
-
+  const trend = input.direction ?? input.trend ?? input.trendArrow;
   return {
     glucose: Math.round(glucose),
     timestamp,
@@ -67,82 +35,62 @@ function normalizeOne(input: any): Reading | null {
   };
 }
 
-function extractReadings(payload: any): Reading[] {
-  const candidates: any[] = [];
+async function getNightscoutEntries() {
+  let lastError = 'No Nightscout endpoint succeeded';
 
-  if (Array.isArray(payload)) candidates.push(...payload);
+  for (const path of NIGHTSCOUT_ENDPOINTS) {
+    try {
+      const response = await fetch(`${NIGHTSCOUT_BASE}${path}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
 
-  if (payload && typeof payload === 'object') {
-    const arrays = [payload.readings, payload.entries, payload.data, payload.history, payload.values];
-    for (const arr of arrays) {
-      if (Array.isArray(arr)) candidates.push(...arr);
+      if (!response.ok) {
+        lastError = `${path} returned ${response.status}`;
+        continue;
+      }
+
+      const payload = await response.json();
+      const source = Array.isArray(payload) ? payload : payload?.entries ?? payload?.data ?? [];
+      const readings = source
+        .map(normalizeEntry)
+        .filter((r: Reading | null): r is Reading => Boolean(r))
+        .sort((a: Reading, b: Reading) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      if (readings.length) return { readings, endpoint: path };
+      lastError = `${path} returned no recognizable glucose readings`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
     }
-
-    const singles = [payload.current, payload.latest, payload.reading, payload.glucose];
-    for (const item of singles) {
-      if (item && typeof item === 'object') candidates.push(item);
-    }
-
-    candidates.push(payload);
   }
 
-  const readings = candidates
-    .map(normalizeOne)
-    .filter((r): r is Reading => Boolean(r))
-    .filter((r, i, all) => all.findIndex((x) => x.timestamp === r.timestamp && x.glucose === r.glucose) === i)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-  return readings.slice(-144);
+  throw new Error(lastError);
 }
 
 export async function GET() {
   try {
-    const response = await fetch(CGM_URL, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { ok: false, error: `CGM source returned ${response.status}` },
-        { status: 502, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
-
-    const text = await response.text();
-    let payload: any;
-
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: 'CGM source did not return JSON', preview: text.slice(0, 200) },
-        { status: 502, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
-
-    const readings = extractReadings(payload);
-    if (!readings.length) {
-      return NextResponse.json(
-        { ok: false, error: 'No glucose readings could be identified in the CGM response' },
-        { status: 502, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
+    const { readings, endpoint } = await getNightscoutEntries();
+    const latest = readings[readings.length - 1];
+    const previous = readings.length > 1 ? readings[readings.length - 2] : null;
 
     return NextResponse.json(
       {
         ok: true,
-        source: 'Jazz CGM',
+        source: 'Jazz Nightscout',
+        endpoint,
         unit: 'mg/dL',
         readings,
-        latest: readings[readings.length - 1],
-        previous: readings.length > 1 ? readings[readings.length - 2] : null,
+        latest,
+        previous,
       },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : 'Unable to reach CGM source' },
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unable to reach Nightscout CGM API',
+      },
       { status: 502, headers: { 'Cache-Control': 'no-store' } }
     );
   }
