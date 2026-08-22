@@ -1,147 +1,112 @@
-'use client';
-
-import { useEffect, useMemo, useState } from 'react';
-
-type Modal = 'insulin' | 'food' | null;
-type TimelineItem = { time: string; icon: string; title: string; detail: string };
-type CgmReading = { glucose: number; timestamp: string; trend?: string };
-type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; previous?: CgmReading | null; error?: string };
-
-const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
-const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
-const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
-
-function trendArrow(trend?: string, delta = 0) {
-  const t = (trend ?? '').toLowerCase().replace(/[^a-z]/g, '');
-
-  // Nightscout/Dexcom directions. Check diagonal values before generic up/down
-  // so FortyFiveDown does not get caught by the broader "down" match.
-  if (t.includes('doubleup')) return '⇈';
-  if (t.includes('fortyfiveup') || t.includes('slightup') || t.includes('singelup')) return '↗';
-  if (t === 'up' || t.includes('singleup') || t.includes('rise')) return '↑';
-  if (t.includes('doubledown')) return '⇊';
-  if (t.includes('fortyfivedown') || t.includes('slightdown')) return '↘';
-  if (t === 'down' || t.includes('singledown') || t.includes('fall')) return '↓';
-  if (t.includes('flat') || t.includes('steady')) return '→';
-
-  // Fallback only when the source gives no usable direction string.
-  if (delta >= 8) return '↗';
-  if (delta <= -8) return '↘';
-  return '→';
-}
-
-function Sparkline({ readings }: { readings: CgmReading[] }) {
-  const width = 800;
-  const height = 170;
-  const values = readings.length > 1 ? readings.map((r) => r.glucose) : fallbackPoints;
-  const min = Math.min(55, ...values) - 5;
-  const max = Math.max(200, ...values) + 5;
-  const step = width / Math.max(1, values.length - 1);
-  const y = (v: number) => height - ((v - min) / (max - min)) * height;
-  const points = values.map((v, i) => `${i * step},${y(v)}`).join(' ');
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Live glucose trend">
-      <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
-      <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
-      <polyline points={points} fill="none" className="glucoseLine" />
-      {values.map((v, i) => <circle key={i} cx={i * step} cy={y(v)} r="4" className="glucoseDot" />)}
-    </svg>
-  );
-}
-
 export default function Home() {
-  const [modal, setModal] = useState<Modal>(null);
-  const [selectedInsulin, setSelectedInsulin] = useState<number | null>(null);
-  const [selectedCarbs, setSelectedCarbs] = useState<number | null>(null);
-  const [cgm, setCgm] = useState<CgmResponse | null>(null);
-  const [cgmLoading, setCgmLoading] = useState(true);
-  const [timeline, setTimeline] = useState<TimelineItem[]>([
-    { time: '14:22', icon: '🍝', title: '2 portions · Pasta + bread', detail: '20g estimated carbohydrate' },
-    { time: '14:08', icon: '💉', title: '2.0 units rapid insulin', detail: 'Logged by caregiver' },
-  ]);
-
-  async function loadCgm() {
-    try {
-      const response = await fetch('/api/cgm', { cache: 'no-store' });
-      const data = (await response.json()) as CgmResponse;
-      setCgm(data);
-    } catch (error) {
-      setCgm({ ok: false, error: error instanceof Error ? error.message : 'Unable to load CGM' });
-    } finally {
-      setCgmLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadCgm();
-    const timer = window.setInterval(loadCgm, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const readings = cgm?.readings ?? [];
-  const latest = cgm?.latest;
-  const previous = cgm?.previous;
-  const currentValue = latest?.glucose ?? 110;
-  const previousValue = previous?.glucose ?? currentValue;
-  const delta = currentValue - previousValue;
-  const arrow = trendArrow(latest?.trend, delta);
-  const live = Boolean(cgm?.ok && latest);
-  const latestTime = latest ? new Date(latest.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-  const now = useMemo(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), [timeline]);
-
-  const cgmTimeline = readings.slice(-3).reverse().map((r, i, arr) => {
-    const next = arr[i + 1];
-    const d = next ? r.glucose - next.glucose : 0;
-    return {
-      time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      icon: '📈',
-      title: `Glucose ${r.glucose} ${trendArrow(r.trend, d)}`,
-      detail: 'Live CGM reading',
-    };
-  });
-
-  function confirmInsulin() {
-    if (selectedInsulin == null) return;
-    setTimeline((items) => [{ time: now, icon: '💉', title: `${selectedInsulin.toFixed(1)} units rapid insulin`, detail: 'Confirmed just now' }, ...items]);
-    setSelectedInsulin(null); setModal(null);
-  }
-
-  function confirmFood() {
-    if (selectedCarbs == null) return;
-    const grams = Math.round(selectedCarbs * 10);
-    setTimeline((items) => [{ time: now, icon: '🍴', title: `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`, detail: `${grams}g carbohydrate at 10g/portion` }, ...items]);
-    setSelectedCarbs(null); setModal(null);
-  }
-
   return (
-    <main className="pageShell">
-      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><button className="profileButton" aria-label="Open profile">J</button></header>
+    <main className="landingPage">
+      <header className="landingHeader">
+        <a className="landingBrand" href="#top" aria-label="GLUCOBOSS home">GLUCO<span>BOSS</span></a>
+        <nav className="landingNav" aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="#connections">Connections</a>
+          <a href="#safety">Safety</a>
+          <a href="/dashboard" className="navCta">Open prototype</a>
+        </nav>
+      </header>
 
-      <section className="glucoseHero">
-        <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{previousValue}</strong><span className="unit">mg/dL</span></div>
-        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{currentValue}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}` : ''}</span></div>
-        <div className="changeBadge">{delta > 0 ? '+' : ''}{delta}</div>
+      <section className="landingHero" id="top">
+        <div className="heroCopy">
+          <div className="heroKicker">TYPE 1 DIABETES · MDI MANAGEMENT</div>
+          <h1>Less logging.<br/><span>More living.</span></h1>
+          <p className="heroLead">GLUCOBOSS brings glucose, insulin, food and everyday diabetes decisions into one clear, fast dashboard designed for real life.</p>
+          <div className="heroActions">
+            <a href="/dashboard" className="primaryCta">Explore the prototype <span>→</span></a>
+            <a href="#features" className="textCta">See how it works</a>
+          </div>
+          <div className="heroTrust"><span>●</span> Built around CGM data, quick logging and caregiver visibility</div>
+        </div>
+
+        <div className="heroVisual" aria-label="GLUCOBOSS product preview">
+          <div className="phoneFrame">
+            <div className="phoneTop"><span>9:41</span><span>● ● ●</span></div>
+            <div className="phoneBrand">GLUCO<span>BOSS</span></div>
+            <div className="phoneGlucose">
+              <small>CURRENT GLUCOSE</small>
+              <div><strong>112</strong><b>→</b></div>
+              <span>mg/dL · now</span>
+            </div>
+            <div className="miniGraph" aria-hidden="true">
+              <svg viewBox="0 0 320 95"><path d="M5,70 C30,55 45,65 70,48 S110,35 135,50 S175,72 205,44 S250,42 315,28" fill="none"/><line x1="0" x2="320" y1="22" y2="22"/><line x1="0" x2="320" y1="77" y2="77"/></svg>
+            </div>
+            <div className="phoneTiles">
+              <div><small>INSULIN ON BOARD</small><strong>2.1 <em>u</em></strong></div>
+              <div><small>CARBS ON BOARD</small><strong>1.5 <em>portions</em></strong></div>
+            </div>
+            <button>＋ Quick log</button>
+          </div>
+          <div className="floatingCard photoCard"><span>📷</span><div><b>Photo carb estimate</b><small>Estimate first. Weigh to verify.</small></div></div>
+          <div className="floatingCard cgmCard"><span>↗</span><div><b>Live CGM</b><small>Connected and updating</small></div></div>
+        </div>
       </section>
 
-      <section className="card graphCard">
-        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to Jazz CGM…' : live ? 'Jazz CGM · refreshes every minute' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill">{live ? 'LIVE' : 'OFFLINE'}</span></div>
-        <Sparkline readings={readings} />
-        <div className="timeAxis"><span>EARLIER</span><span></span><span></span><span>NOW</span></div>
+      <section className="landingStrip">
+        <p>One place for the things that usually live in different apps, notes and conversations.</p>
+        <div><span>GLUCOSE</span><i>+</i><span>INSULIN</span><i>+</i><span>FOOD</span><i>+</i><span>VOICE</span><i>+</i><span>CAREGIVERS</span></div>
       </section>
 
-      <section className="metricsGrid">
-        <article className="card metricCard"><div className="metricTitle">INSULIN ON BOARD</div><div className="metricValue">2.1 <span>u</span></div><div className="miniRows"><div><span>14:08</span><b>2.0u</b></div><div><span>12:50</span><b>0.5u</b></div></div><button className="actionButton" onClick={() => setModal('insulin')}>💉 LOG INSULIN</button></article>
-        <article className="card metricCard"><div className="metricTitle">CARBS ON BOARD</div><div className="metricValue">1.5 <span>portions</span></div><div className="miniRows"><div><span>14:22</span><b>Pasta + bread</b></div><div><span>13:10</span><b>½ portion</b></div></div><button className="actionButton" onClick={() => setModal('food')}>🍴 LOG FOOD</button></article>
+      <section className="landingSection" id="features">
+        <div className="sectionIntro">
+          <div className="sectionKicker">DESIGNED FOR SPEED</div>
+          <h2>Diabetes management without the admin feeling.</h2>
+          <p>GLUCOBOSS is being designed around the moments that happen dozens of times a day: checking glucose, logging insulin, estimating food and understanding what happened next.</p>
+        </div>
+        <div className="featureGrid">
+          <article className="featureCard featureDark"><span className="featureIcon">↗</span><h3>Live glucose at a glance</h3><p>See current glucose, direction and recent movement without digging through multiple screens.</p><div className="featureStat"><b>112</b><span>mg/dL →</span></div></article>
+          <article className="featureCard"><span className="featureIcon">💉</span><h3>Fast insulin logging</h3><p>Large, deliberate controls make it quick to record insulin while reducing accidental taps.</p><div className="mockChips"><span>0.5</span><span>1.0</span><span>1.5</span><span>2.0</span></div></article>
+          <article className="featureCard"><span className="featureIcon">🍽️</span><h3>Smarter food logging</h3><p>Log carb portions, use voice, or start with a photo estimate and refine it using verified weights.</p><div className="foodFlow"><span>📷 Photo</span><b>→</b><span>⚖️ Weigh</span><b>→</b><span>✓ Confirm</span></div></article>
+          <article className="featureCard"><span className="featureIcon">🎙️</span><h3>Say it instead</h3><p>Voice-first logging is planned for the moments when opening a form is the last thing you want to do.</p><div className="voiceWave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+        </div>
       </section>
 
-      <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype">🎙️ SAY IT</button></section>
+      <section className="connectionsSection" id="connections">
+        <div className="connectionsCopy">
+          <div className="sectionKicker">CONNECTIONS</div>
+          <h2>Connect the data you already rely on.</h2>
+          <p>GLUCOBOSS is being built to become the layer that brings diabetes data together, rather than another isolated app.</p>
+          <div className="connectionList">
+            <div><span className="connectionIcon">◉</span><div><b>CGM & Nightscout</b><small>Live glucose feeds and trend data</small></div><em>IN PROGRESS</em></div>
+            <div><span className="connectionIcon">⚖️</span><div><b>Bluetooth food scales</b><small>Direct weight capture for higher-confidence carb calculations</small></div><em>PLANNED</em></div>
+            <div><span className="connectionIcon">⌁</span><div><b>Smart device ecosystem</b><small>Future integrations for diabetes hardware and health platforms</small></div><em>ROADMAP</em></div>
+          </div>
+        </div>
+        <div className="connectionVisual">
+          <div className="centralNode">G<span>B</span></div>
+          <div className="orbit orbitOne"><span>CGM</span></div>
+          <div className="orbit orbitTwo"><span>⚖️</span></div>
+          <div className="orbit orbitThree"><span>📱</span></div>
+          <div className="orbit orbitFour"><span>☁️</span></div>
+        </div>
+      </section>
 
-      <section className="card timelineCard"><div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place</p></div></div><div className="timeline">{[...cgmTimeline, ...timeline].map((item, i) => <div className="timelineItem" key={`${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}</div></section>
+      <section className="safetySection" id="safety">
+        <div className="safetyBadge">SAFETY FIRST</div>
+        <h2>An estimate should always look like an estimate.</h2>
+        <p>Photo-based carbohydrate recognition can be useful, but portion size and ingredients can be wrong. GLUCOBOSS will clearly label image-based results as estimates and encourage users to weigh food and use verified nutritional information before making treatment decisions.</p>
+        <div className="safetyExample">
+          <div><small>PHOTO ESTIMATE</small><strong>~55g</strong><span>Low / medium confidence</span></div>
+          <b>→</b>
+          <div className="verified"><small>AFTER WEIGHING</small><strong>~32g</strong><span>Higher-confidence calculation</span></div>
+        </div>
+        <p className="safetyNote">GLUCOBOSS is currently a prototype. Treatment recommendation logic is intentionally disabled and the product must not be used as a substitute for professional medical advice or validated dosing tools.</p>
+      </section>
 
-      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => setModal('insulin')}>💉<span>Insulin</span></button><button onClick={() => setModal('food')}>🍴<span>Food</span></button><button>🎙️<span>Voice</span></button></nav>
+      <section className="finalCta">
+        <div><div className="sectionKicker">THE IDEA IS SIMPLE</div><h2>Make the daily work of Type 1 diabetes feel lighter.</h2></div>
+        <a href="/dashboard" className="primaryCta light">Open GLUCOBOSS prototype <span>→</span></a>
+      </section>
 
-      {modal && <div className="modalBackdrop" onClick={() => setModal(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setModal(null)}>×</button>{modal === 'insulin' ? <><span className="eyebrow">QUICK LOG</span><h2>How much insulin?</h2><p className="modalIntro">Rapid acting · now</p><div className="bigButtonGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other">+</button></div><button className="confirmButton" disabled={selectedInsulin == null} onClick={confirmInsulin}>{selectedInsulin == null ? 'SELECT DOSE' : `CONFIRM ${selectedInsulin} UNITS`}</button></> : <><span className="eyebrow">QUICK LOG</span><h2>How many carb portions?</h2><p className="modalIntro">Prototype setting: 1 portion = 10g carbohydrate</p><div className="bigButtonGrid carbs">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other">+</button></div><button className="secondaryButton">📷 Estimate from photo</button><button className="secondaryButton">🎙️ Log with voice</button><button className="confirmButton" disabled={selectedCarbs == null} onClick={confirmFood}>{selectedCarbs == null ? 'SELECT PORTIONS' : `CONFIRM ${selectedCarbs} PORTION${selectedCarbs === 1 ? '' : 'S'}`}</button></>}</section></div>}
+      <footer className="landingFooter">
+        <a className="landingBrand" href="#top">GLUCO<span>BOSS</span></a>
+        <p>Prototype for Type 1 diabetes MDI daily management.</p>
+        <div><a href="#features">Features</a><a href="#connections">Connections</a><a href="#safety">Safety</a></div>
+      </footer>
     </main>
   );
 }
