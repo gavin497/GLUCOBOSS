@@ -68,12 +68,14 @@ export default function Dashboard() {
   const [cgm, setCgm] = useState<CgmResponse | null>(null);
   const [cgmLoading, setCgmLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [clockTick, setClockTick] = useState(Date.now());
 
   async function loadCgm() {
     try {
       const response = await fetch('/api/cgm', { cache: 'no-store' });
       const data = (await response.json()) as CgmResponse;
       setCgm(data);
+      setClockTick(Date.now());
     } catch (error) {
       setCgm({ ok: false, error: error instanceof Error ? error.message : 'Unable to load CGM' });
     } finally {
@@ -83,8 +85,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadCgm();
-    const timer = window.setInterval(loadCgm, 60_000);
-    return () => window.clearInterval(timer);
+    const cgmTimer = window.setInterval(loadCgm, 60_000);
+    const ageTimer = window.setInterval(() => setClockTick(Date.now()), 15_000);
+    return () => {
+      window.clearInterval(cgmTimer);
+      window.clearInterval(ageTimer);
+    };
   }, []);
 
   const readings = cgm?.readings ?? [];
@@ -96,6 +102,12 @@ export default function Dashboard() {
   const arrow = trendArrow(latest?.trend, delta);
   const live = Boolean(cgm?.ok && latest);
   const latestTime = latest ? new Date(latest.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  const latestTimestamp = latest ? new Date(latest.timestamp).getTime() : null;
+  const latestAgeMinutes = latestTimestamp == null || Number.isNaN(latestTimestamp) ? null : Math.max(0, Math.floor((clockTick - latestTimestamp) / 60_000));
+  const stale = live && latestAgeMinutes != null && latestAgeMinutes >= 8;
+  const ageText = latestAgeMinutes == null ? '' : latestAgeMinutes < 1 ? '<1 min ago' : `${latestAgeMinutes} min${latestAgeMinutes === 1 ? '' : 's'} ago`;
+  const statusText = !live ? 'OFFLINE' : `${stale ? 'STALE' : 'LIVE'} · ${latestAgeMinutes != null && latestAgeMinutes < 1 ? '<1 MIN' : `${latestAgeMinutes ?? '?'} MIN${latestAgeMinutes === 1 ? '' : 'S'} AGO`}`;
+  const statusStyle = stale ? { background: '#fee2e2', color: '#b91c1c' } : undefined;
 
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin');
   const foodEntries = timeline.filter((item) => item.kind === 'food');
@@ -222,7 +234,7 @@ export default function Dashboard() {
       </section>
 
       <section className="card graphCard">
-        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? 'CGM connected · refreshes every minute' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill">{live ? 'LIVE' : 'OFFLINE'}</span></div>
+        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText} · app checks every minute` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
         <Sparkline readings={readings} />
         <div className="timeAxis"><span>EARLIER</span><span></span><span></span><span>NOW</span></div>
       </section>
