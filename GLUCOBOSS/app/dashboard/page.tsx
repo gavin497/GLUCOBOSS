@@ -51,10 +51,7 @@ export default function Dashboard() {
   const [selectedCarbs, setSelectedCarbs] = useState<number | null>(null);
   const [cgm, setCgm] = useState<CgmResponse | null>(null);
   const [cgmLoading, setCgmLoading] = useState(true);
-  const [timeline, setTimeline] = useState<TimelineItem[]>([
-    { time: '14:22', icon: '🍝', title: '2 portions · Pasta + bread', detail: '20g estimated carbohydrate' },
-    { time: '14:08', icon: '💉', title: '2.0 units rapid insulin', detail: 'Logged by caregiver' },
-  ]);
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
 
   async function loadCgm() {
     try {
@@ -126,8 +123,8 @@ export default function Dashboard() {
       </section>
 
       <section className="metricsGrid">
-        <article className="card metricCard"><div className="metricTitle">INSULIN ON BOARD</div><div className="metricValue">2.1 <span>u</span></div><div className="miniRows"><div><span>14:08</span><b>2.0u</b></div><div><span>12:50</span><b>0.5u</b></div></div><button className="actionButton" onClick={() => setModal('insulin')}>💉 LOG INSULIN</button></article>
-        <article className="card metricCard"><div className="metricTitle">CARBS ON BOARD</div><div className="metricValue">1.5 <span>portions</span></div><div className="miniRows"><div><span>14:22</span><b>Pasta + bread</b></div><div><span>13:10</span><b>½ portion</b></div></div><button className="actionButton" onClick={() => setModal('food')}>🍴 LOG FOOD</button></article>
+        <article className="card metricCard"><div className="metricTitle">INSULIN ON BOARD</div><div className="metricValue">— <span>u</span></div><div className="miniRows"><div><span>—</span><b>No demo insulin logged</b></div></div><button className="actionButton" onClick={() => setModal('insulin')}>💉 LOG INSULIN</button></article>
+        <article className="card metricCard"><div className="metricTitle">CARBS ON BOARD</div><div className="metricValue">— <span>portions</span></div><div className="miniRows"><div><span>—</span><b>No demo food logged</b></div></div><button className="actionButton" onClick={() => setModal('food')}>🍴 LOG FOOD</button></article>
       </section>
 
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype">🎙️ SAY IT</button></section>
