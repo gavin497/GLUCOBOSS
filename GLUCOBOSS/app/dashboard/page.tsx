@@ -18,6 +18,7 @@ type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; 
 const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
 const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
+const chartRanges = [2, 4, 6, 12, 24];
 
 function currentTime() {
   const d = new Date();
@@ -38,23 +39,79 @@ function trendArrow(trend?: string, delta = 0) {
   return '→';
 }
 
-function Sparkline({ readings }: { readings: CgmReading[] }) {
+function glucoseColour(v: number) {
+  if (v < 70) return '#3b82f6';
+  if (v > 180) return '#ef4444';
+  return '#00a889';
+}
+
+function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }) {
   const width = 800;
-  const height = 170;
-  const values = readings.length > 1 ? readings.map((r) => r.glucose) : fallbackPoints;
-  const min = Math.min(55, ...values) - 5;
-  const max = Math.max(200, ...values) + 5;
+  const height = 190;
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const validReadings = readings.filter((r) => Number.isFinite(new Date(r.timestamp).getTime()));
+  const latestMs = validReadings.length ? new Date(validReadings[validReadings.length - 1].timestamp).getTime() : Date.now();
+  const cutoff = latestMs - hours * 60 * 60 * 1000;
+  const filtered = validReadings.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+  const chartReadings = filtered.length > 1 ? filtered : [];
+  const values = chartReadings.length ? chartReadings.map((r) => r.glucose) : fallbackPoints;
+  const min = Math.min(50, ...values) - 5;
+  const max = Math.max(220, ...values) + 10;
   const step = width / Math.max(1, values.length - 1);
   const y = (v: number) => height - ((v - min) / (max - min)) * height;
   const points = values.map((v, i) => `${i * step},${y(v)}`).join(' ');
+  const highBoundary = Math.max(0, Math.min(100, (y(180) / height) * 100));
+  const lowBoundary = Math.max(0, Math.min(100, (y(70) / height) * 100));
+  const hoverReading = hoveredIndex != null && chartReadings.length ? chartReadings[hoveredIndex] : null;
+  const hoverDelta = hoverReading && hoveredIndex != null && hoveredIndex > 0
+    ? hoverReading.glucose - chartReadings[hoveredIndex - 1].glucose
+    : null;
+
+  function updateHover(clientX: number, element: SVGSVGElement) {
+    if (!chartReadings.length) return;
+    const rect = element.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setHoveredIndex(Math.round(ratio * (chartReadings.length - 1)));
+  }
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Live glucose trend">
-      <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
-      <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
-      <polyline points={points} fill="none" className="glucoseLine" />
-      {values.map((v, i) => <circle key={i} cx={i * step} cy={y(v)} r="4" className="glucoseDot" />)}
-    </svg>
+    <div className="chartInteractive">
+      <div className="chartHoverReadout">
+        {hoverReading ? (
+          <><b>{hoverReading.glucose} mg/dL</b><span>{new Date(hoverReading.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>{hoverDelta == null ? '—' : `${hoverDelta > 0 ? '+' : ''}${hoverDelta} from prior`}</span></>
+        ) : <span>Hover or touch the chart to inspect a reading</span>}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${hours} hour live glucose trend`}
+        onPointerMove={(e) => updateHover(e.clientX, e.currentTarget)}
+        onPointerDown={(e) => updateHover(e.clientX, e.currentTarget)}
+        onPointerLeave={() => setHoveredIndex(null)}
+      >
+        <defs>
+          <linearGradient id="glucoseRangeGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#ef4444" />
+            <stop offset={`${highBoundary}%`} stopColor="#ef4444" />
+            <stop offset={`${Math.min(100, highBoundary + 0.1)}%`} stopColor="#00a889" />
+            <stop offset={`${lowBoundary}%`} stopColor="#00a889" />
+            <stop offset={`${Math.min(100, lowBoundary + 0.1)}%`} stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#3b82f6" />
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width={width} height={Math.max(0, y(180))} fill="rgba(239,68,68,.06)" />
+        <rect x="0" y={y(180)} width={width} height={Math.max(0, y(70) - y(180))} fill="rgba(0,168,137,.07)" />
+        <rect x="0" y={y(70)} width={width} height={Math.max(0, height - y(70))} fill="rgba(59,130,246,.07)" />
+        <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
+        <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
+        <polyline points={points} fill="none" stroke="url(#glucoseRangeGradient)" className="glucoseLine" />
+        {values.map((v, i) => <circle key={i} cx={i * step} cy={y(v)} r="4" fill="#fff" stroke={glucoseColour(v)} strokeWidth="3" />)}
+        {hoveredIndex != null && chartReadings.length > 0 && <>
+          <line x1={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} x2={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} y1="0" y2={height} className="hoverGuide" />
+          <circle cx={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} cy={y(chartReadings[hoveredIndex].glucose)} r="7" fill="#fff" stroke={glucoseColour(chartReadings[hoveredIndex].glucose)} strokeWidth="4" />
+        </>}
+      </svg>
+    </div>
   );
 }
 
@@ -69,6 +126,8 @@ export default function Dashboard() {
   const [cgmLoading, setCgmLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [clockTick, setClockTick] = useState(Date.now());
+  const [chartHours, setChartHours] = useState(6);
+  const [voiceMessage, setVoiceMessage] = useState('');
 
   async function loadCgm() {
     try {
@@ -131,6 +190,7 @@ export default function Dashboard() {
     setSelectedEntry(null);
     setEditingId(null);
     setSelectedTime(currentTime());
+    setVoiceMessage('');
     if (kind === 'insulin') {
       setSelectedInsulin(null);
       setSelectedCarbs(null);
@@ -145,6 +205,7 @@ export default function Dashboard() {
     setSelectedEntry(null);
     setEditingId(item.id);
     setSelectedTime(item.time);
+    setVoiceMessage('');
     if (item.kind === 'insulin') {
       setSelectedInsulin(item.value);
       setSelectedCarbs(null);
@@ -169,6 +230,7 @@ export default function Dashboard() {
     setSelectedInsulin(null);
     setSelectedCarbs(null);
     setSelectedTime(currentTime());
+    setVoiceMessage('');
   }
 
   function confirmInsulin() {
@@ -220,8 +282,49 @@ export default function Dashboard() {
     closeLogModal();
   }
 
-  const fieldStyle = { width: '100%', boxSizing: 'border-box' as const, padding: '14px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 18, marginBottom: 14 };
-  const labelStyle = { display: 'block', fontWeight: 800, margin: '14px 0 7px' };
+  function spokenNumber(text: string) {
+    const numeric = text.match(/\d+(?:\.\d+)?/);
+    if (numeric) return Number(numeric[0]);
+    const words: Record<string, number> = { half: 0.5, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    const lower = text.toLowerCase();
+    for (const [word, value] of Object.entries(words)) if (lower.includes(word)) return value;
+    return null;
+  }
+
+  function startVoice(kind: 'insulin' | 'food') {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceMessage('Voice input is not supported in this browser.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-GB';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setVoiceMessage('Listening…');
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[0]?.[0]?.transcript ?? '');
+      const value = spokenNumber(transcript);
+      if (value == null || value <= 0) {
+        setVoiceMessage(`Heard “${transcript}” but could not find a quantity.`);
+        return;
+      }
+      if (kind === 'insulin') {
+        setSelectedInsulin(value);
+        setVoiceMessage(`Heard “${transcript}” → ${value} units. Please confirm.`);
+      } else {
+        const lower = transcript.toLowerCase();
+        const portions = lower.includes('gram') ? value / 10 : value;
+        setSelectedCarbs(portions);
+        setVoiceMessage(`Heard “${transcript}” → ${portions} portion${portions === 1 ? '' : 's'}. Please confirm.`);
+      }
+    };
+    recognition.onerror = () => setVoiceMessage('Voice input did not complete. Try again or enter the quantity manually.');
+    recognition.start();
+  }
+
+  const fieldStyle = { width: '100%', boxSizing: 'border-box' as const, padding: '10px 12px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 17, marginBottom: 8 };
+  const labelStyle = { display: 'block', fontWeight: 800, margin: '8px 0 5px' };
 
   return (
     <main className="pageShell">
@@ -229,14 +332,18 @@ export default function Dashboard() {
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{previousValue}</strong><span className="unit">mg/dL</span></div>
-        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{currentValue}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}` : ''}</span></div>
+        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{currentValue}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
         <div className="changeBadge">{delta > 0 ? '+' : ''}{delta}</div>
       </section>
 
       <section className="card graphCard">
         <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText} · app checks every minute` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
-        <Sparkline readings={readings} />
-        <div className="timeAxis"><span>EARLIER</span><span></span><span></span><span>NOW</span></div>
+        <div className="chartControls" aria-label="Chart time range">
+          {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
+        </div>
+        <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
+        <CgmChart readings={readings} hours={chartHours} />
+        <div className="timeAxis"><span>{chartHours} HOURS AGO</span><span>NOW</span></div>
       </section>
 
       <section className="metricsGrid">
@@ -258,7 +365,7 @@ export default function Dashboard() {
         </article>
       </section>
 
-      <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype">🎙️ SAY IT</button></section>
+      <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
       <section className="card timelineCard">
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · tap a manual entry to edit</p></div></div>
@@ -268,11 +375,43 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button>🎙️<span>Voice</span></button></nav>
+      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button></nav>
 
       {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => deleteEntry(selectedEntry)}>🗑️ DELETE ENTRY</button></section></div>}
 
-      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset or enter the exact quantity.</p><div className="bigButtonGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /><button className="confirmButton" disabled={selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">Prototype setting: 1 portion = 10g carbohydrate. Choose a preset or enter the exact quantity.</p><div className="bigButtonGrid carbs">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /><button className="secondaryButton">📷 Estimate from photo</button><button className="secondaryButton">🎙️ Log with voice</button><button className="confirmButton" disabled={selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton">📷 Estimate from photo</button><button className="confirmButton compactConfirm" disabled={selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+      <style>{`
+        .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
+        .chartControls button { border:1px solid #dce5ea; background:#fff; border-radius:999px; padding:7px 12px; font-weight:850; cursor:pointer; color:#526873; }
+        .chartControls button.active { background:#10232f; color:#fff; border-color:#10232f; }
+        .chartLegend { display:flex; gap:14px; align-items:center; margin-top:10px; font-size:11px; font-weight:850; flex-wrap:wrap; }
+        .chartLegend span::before { content:''; display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+        .chartLegend .low { color:#2563eb; } .chartLegend .low::before { background:#3b82f6; }
+        .chartLegend .inRange { color:#087966; } .chartLegend .inRange::before { background:#00a889; }
+        .chartLegend .high { color:#dc2626; } .chartLegend .high::before { background:#ef4444; }
+        .chartInteractive { position:relative; margin-top:8px; }
+        .chartInteractive svg { touch-action:none; cursor:crosshair; margin-top:4px; }
+        .chartHoverReadout { min-height:28px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; color:#667985; font-size:12px; }
+        .chartHoverReadout b { color:#10232f; font-size:14px; }
+        .hoverGuide { stroke:#8da0a8; stroke-width:1; stroke-dasharray:4 4; }
+        .compactGrid { gap:7px !important; margin-top:12px !important; }
+        .compactGrid button { min-height:54px !important; font-size:22px !important; border-radius:14px !important; }
+        .compactFields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        .voiceStatus { margin-top:7px; padding:8px 10px; border-radius:10px; background:#f3f8f7; color:#526873; font-size:12px; }
+        .voiceLogButton { min-height:44px !important; margin-top:8px !important; }
+        .compactConfirm { min-height:50px !important; margin-top:8px !important; }
+        @media (max-width:720px) {
+          .compactLogModal { padding:18px 14px 16px !important; max-height:96vh !important; }
+          .compactLogModal h2 { font-size:27px !important; margin-top:3px !important; }
+          .compactLogModal .modalIntro { margin:4px 0 0; font-size:13px; }
+          .compactGrid { grid-template-columns:repeat(4,1fr) !important; }
+          .compactGrid button { min-height:48px !important; font-size:20px !important; }
+          .compactFields { grid-template-columns:1fr 1fr; }
+          .chartControls { justify-content:center; }
+          .chartLegend { justify-content:center; gap:10px; }
+          .chartHoverReadout { justify-content:center; text-align:center; }
+        }
+      `}</style>
     </main>
   );
 }
