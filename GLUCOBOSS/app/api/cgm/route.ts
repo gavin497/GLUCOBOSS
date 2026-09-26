@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 
 const NIGHTSCOUT_BASE = 'https://jazzcgm.up.railway.app';
 const NIGHTSCOUT_ENDPOINTS = [
-  '/api/v1/entries/sgv.json?count=144',
-  '/api/v1/entries.json?count=144',
+  '/api/v1/entries/sgv.json?count=300',
+  '/api/v1/entries.json?count=300',
 ];
 
 type Reading = {
