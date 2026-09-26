@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type Modal = 'insulin' | 'food' | null;
-type TimelineItem = { time: string; icon: string; title: string; detail: string };
+type TimelineItem = {
+  id: string;
+  kind: 'insulin' | 'food';
+  value: number;
+  time: string;
+  icon: string;
+  title: string;
+  detail: string;
+};
 type CgmReading = { glucose: number; timestamp: string; trend?: string };
 type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; previous?: CgmReading | null; error?: string };
 
@@ -47,6 +55,8 @@ function Sparkline({ readings }: { readings: CgmReading[] }) {
 
 export default function Dashboard() {
   const [modal, setModal] = useState<Modal>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<TimelineItem | null>(null);
   const [selectedInsulin, setSelectedInsulin] = useState<number | null>(null);
   const [selectedCarbs, setSelectedCarbs] = useState<number | null>(null);
   const [cgm, setCgm] = useState<CgmResponse | null>(null);
@@ -93,17 +103,89 @@ export default function Dashboard() {
     };
   });
 
+  function makeId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function openNew(kind: 'insulin' | 'food') {
+    setSelectedEntry(null);
+    setEditingId(null);
+    if (kind === 'insulin') setSelectedInsulin(null);
+    if (kind === 'food') setSelectedCarbs(null);
+    setModal(kind);
+  }
+
+  function openEdit(item: TimelineItem) {
+    setSelectedEntry(null);
+    setEditingId(item.id);
+    if (item.kind === 'insulin') {
+      setSelectedInsulin(item.value);
+      setModal('insulin');
+    } else {
+      setSelectedCarbs(item.value);
+      setModal('food');
+    }
+  }
+
+  function deleteEntry(item: TimelineItem) {
+    if (!window.confirm(`Delete this ${item.kind === 'insulin' ? 'insulin' : 'food'} entry?`)) return;
+    setTimeline((items) => items.filter((entry) => entry.id !== item.id));
+    setSelectedEntry(null);
+    if (editingId === item.id) setEditingId(null);
+  }
+
+  function closeLogModal() {
+    setModal(null);
+    setEditingId(null);
+    setSelectedInsulin(null);
+    setSelectedCarbs(null);
+  }
+
   function confirmInsulin() {
     if (selectedInsulin == null) return;
-    setTimeline((items) => [{ time: now, icon: '💉', title: `${selectedInsulin.toFixed(1)} units rapid insulin`, detail: 'Confirmed just now' }, ...items]);
-    setSelectedInsulin(null); setModal(null);
+    if (editingId) {
+      setTimeline((items) => items.map((item) => item.id === editingId ? {
+        ...item,
+        value: selectedInsulin,
+        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
+        detail: 'Edited just now',
+      } : item));
+    } else {
+      setTimeline((items) => [{
+        id: makeId(),
+        kind: 'insulin',
+        value: selectedInsulin,
+        time: now,
+        icon: '💉',
+        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
+        detail: 'Confirmed just now',
+      }, ...items]);
+    }
+    closeLogModal();
   }
 
   function confirmFood() {
     if (selectedCarbs == null) return;
     const grams = Math.round(selectedCarbs * 10);
-    setTimeline((items) => [{ time: now, icon: '🍴', title: `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`, detail: `${grams}g carbohydrate at 10g/portion` }, ...items]);
-    setSelectedCarbs(null); setModal(null);
+    if (editingId) {
+      setTimeline((items) => items.map((item) => item.id === editingId ? {
+        ...item,
+        value: selectedCarbs,
+        title: `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`,
+        detail: `${grams}g carbohydrate at 10g/portion · edited`,
+      } : item));
+    } else {
+      setTimeline((items) => [{
+        id: makeId(),
+        kind: 'food',
+        value: selectedCarbs,
+        time: now,
+        icon: '🍴',
+        title: `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`,
+        detail: `${grams}g carbohydrate at 10g/portion`,
+      }, ...items]);
+    }
+    closeLogModal();
   }
 
   return (
@@ -123,17 +205,25 @@ export default function Dashboard() {
       </section>
 
       <section className="metricsGrid">
-        <article className="card metricCard"><div className="metricTitle">INSULIN ON BOARD</div><div className="metricValue">— <span>u</span></div><div className="miniRows"><div><span>—</span><b>No demo insulin logged</b></div></div><button className="actionButton" onClick={() => setModal('insulin')}>💉 LOG INSULIN</button></article>
-        <article className="card metricCard"><div className="metricTitle">CARBS ON BOARD</div><div className="metricValue">— <span>portions</span></div><div className="miniRows"><div><span>—</span><b>No demo food logged</b></div></div><button className="actionButton" onClick={() => setModal('food')}>🍴 LOG FOOD</button></article>
+        <article className="card metricCard"><div className="metricTitle">INSULIN ON BOARD</div><div className="metricValue">— <span>u</span></div><div className="miniRows"><div><span>—</span><b>No demo insulin logged</b></div></div><button className="actionButton" onClick={() => openNew('insulin')}>💉 LOG INSULIN</button></article>
+        <article className="card metricCard"><div className="metricTitle">CARBS ON BOARD</div><div className="metricValue">— <span>portions</span></div><div className="miniRows"><div><span>—</span><b>No demo food logged</b></div></div><button className="actionButton" onClick={() => openNew('food')}>🍴 LOG FOOD</button></article>
       </section>
 
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype">🎙️ SAY IT</button></section>
 
-      <section className="card timelineCard"><div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place</p></div></div><div className="timeline">{[...cgmTimeline, ...timeline].map((item, i) => <div className="timelineItem" key={`${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}</div></section>
+      <section className="card timelineCard">
+        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · tap a manual entry to edit</p></div></div>
+        <div className="timeline">
+          {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
+          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail} · Tap to edit</span></div></div>)}
+        </div>
+      </section>
 
-      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => setModal('insulin')}>💉<span>Insulin</span></button><button onClick={() => setModal('food')}>🍴<span>Food</span></button><button>🎙️<span>Voice</span></button></nav>
+      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button>🎙️<span>Voice</span></button></nav>
 
-      {modal && <div className="modalBackdrop" onClick={() => setModal(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setModal(null)}>×</button>{modal === 'insulin' ? <><span className="eyebrow">QUICK LOG</span><h2>How much insulin?</h2><p className="modalIntro">Rapid acting · now</p><div className="bigButtonGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other">+</button></div><button className="confirmButton" disabled={selectedInsulin == null} onClick={confirmInsulin}>{selectedInsulin == null ? 'SELECT DOSE' : `CONFIRM ${selectedInsulin} UNITS`}</button></> : <><span className="eyebrow">QUICK LOG</span><h2>How many carb portions?</h2><p className="modalIntro">Prototype setting: 1 portion = 10g carbohydrate</p><div className="bigButtonGrid carbs">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other">+</button></div><button className="secondaryButton">📷 Estimate from photo</button><button className="secondaryButton">🎙️ Log with voice</button><button className="confirmButton" disabled={selectedCarbs == null} onClick={confirmFood}>{selectedCarbs == null ? 'SELECT PORTIONS' : `CONFIRM ${selectedCarbs} PORTION${selectedCarbs === 1 ? '' : 'S'}`}</button></>}</section></div>}
+      {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => deleteEntry(selectedEntry)}>🗑️ DELETE ENTRY</button></section></div>}
+
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT LOG' : 'QUICK LOG'}</span><h2>How much insulin?</h2><p className="modalIntro">Rapid acting</p><div className="bigButtonGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other">+</button></div><button className="confirmButton" disabled={selectedInsulin == null} onClick={confirmInsulin}>{selectedInsulin == null ? 'SELECT DOSE' : editingId ? `SAVE ${selectedInsulin} UNITS` : `CONFIRM ${selectedInsulin} UNITS`}</button></> : <><span className="eyebrow">{editingId ? 'EDIT LOG' : 'QUICK LOG'}</span><h2>How many carb portions?</h2><p className="modalIntro">Prototype setting: 1 portion = 10g carbohydrate</p><div className="bigButtonGrid carbs">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other">+</button></div><button className="secondaryButton">📷 Estimate from photo</button><button className="secondaryButton">🎙️ Log with voice</button><button className="confirmButton" disabled={selectedCarbs == null} onClick={confirmFood}>{selectedCarbs == null ? 'SELECT PORTIONS' : editingId ? `SAVE ${selectedCarbs} PORTION${selectedCarbs === 1 ? '' : 'S'}` : `CONFIRM ${selectedCarbs} PORTION${selectedCarbs === 1 ? '' : 'S'}`}</button></>}</section></div>}
     </main>
   );
 }
