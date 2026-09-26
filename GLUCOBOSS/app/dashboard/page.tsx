@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Modal = 'insulin' | 'food' | null;
 type TimelineItem = {
@@ -11,6 +11,7 @@ type TimelineItem = {
   icon: string;
   title: string;
   detail: string;
+  createdAt?: string;
 };
 type CgmReading = { glucose: number; timestamp: string; trend?: string };
 type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; previous?: CgmReading | null; error?: string };
@@ -19,6 +20,7 @@ const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
 const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
 const chartRanges = [2, 4, 6, 12, 24];
+const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
 
 function currentTime() {
   const d = new Date();
@@ -45,10 +47,43 @@ function glucoseColour(v: number) {
   return '#00a889';
 }
 
+function isTimelineItem(value: unknown): value is TimelineItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as TimelineItem;
+  return typeof item.id === 'string' &&
+    (item.kind === 'insulin' || item.kind === 'food') &&
+    typeof item.value === 'number' &&
+    typeof item.time === 'string' &&
+    typeof item.title === 'string';
+}
+
 function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }) {
-  const width = 800;
-  const height = 190;
+  const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const [chartWidth, setChartWidth] = useState(1000);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const height = 220;
+
+  useEffect(() => {
+    const element = chartWrapRef.current;
+    if (!element) return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.max(320, Math.round(element.getBoundingClientRect().width));
+      setChartWidth(nextWidth);
+    };
+
+    updateWidth();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const width = chartWidth;
   const validReadings = readings.filter((r) => Number.isFinite(new Date(r.timestamp).getTime()));
   const latestMs = validReadings.length ? new Date(validReadings[validReadings.length - 1].timestamp).getTime() : Date.now();
   const cutoff = latestMs - hours * 60 * 60 * 1000;
@@ -75,14 +110,21 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
   }
 
   return (
-    <div className="chartInteractive">
+    <div className="chartInteractive" ref={chartWrapRef}>
       <div className="chartHoverReadout">
         {hoverReading ? (
-          <><b>{hoverReading.glucose} mg/dL</b><span>{new Date(hoverReading.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>{hoverDelta == null ? '—' : `${hoverDelta > 0 ? '+' : ''}${hoverDelta} from prior`}</span></>
+          <>
+            <b>{hoverReading.glucose} mg/dL</b>
+            <span>{new Date(hoverReading.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{hoverDelta == null ? '—' : `${hoverDelta > 0 ? '+' : ''}${hoverDelta} from prior`}</span>
+          </>
         ) : <span>Hover or touch the chart to inspect a reading</span>}
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        style={{ display: 'block', width: '100%', height: `${height}px` }}
         role="img"
         aria-label={`${hours} hour live glucose trend`}
         onPointerMove={(e) => updateHover(e.clientX, e.currentTarget)}
@@ -125,6 +167,7 @@ export default function Dashboard() {
   const [cgm, setCgm] = useState<CgmResponse | null>(null);
   const [cgmLoading, setCgmLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [timelineLoaded, setTimelineLoaded] = useState(false);
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
   const [voiceMessage, setVoiceMessage] = useState('');
@@ -150,6 +193,43 @@ export default function Dashboard() {
       window.clearInterval(cgmTimer);
       window.clearInterval(ageTimer);
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(LOG_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
+      }
+    } catch {
+      // Ignore malformed or unavailable browser storage and keep the log usable.
+    } finally {
+      setTimelineLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!timelineLoaded) return;
+    try {
+      window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(timeline));
+    } catch {
+      // If browser storage is unavailable, the current session still works normally.
+    }
+  }, [timeline, timelineLoaded]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== LOG_STORAGE_KEY || !event.newValue) return;
+      try {
+        const parsed = JSON.parse(event.newValue);
+        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
+      } catch {
+        // Ignore invalid storage events.
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   const readings = cgm?.readings ?? [];
@@ -252,6 +332,7 @@ export default function Dashboard() {
         icon: '💉',
         title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
         detail: 'Manual entry',
+        createdAt: new Date().toISOString(),
       }, ...items]);
     }
     closeLogModal();
@@ -277,6 +358,7 @@ export default function Dashboard() {
         icon: '🍴',
         title: `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`,
         detail: `${grams}g carbohydrate at 10g/portion`,
+        createdAt: new Date().toISOString(),
       }, ...items]);
     }
     closeLogModal();
@@ -351,7 +433,7 @@ export default function Dashboard() {
           <div className="metricTitle">INSULIN LOG</div>
           <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u latest</span></div>
           <div className="miniRows">
-            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>No insulin logged</b></div>}
+            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('insulin')}>💉 LOG INSULIN</button>
         </article>
@@ -359,7 +441,7 @@ export default function Dashboard() {
           <div className="metricTitle">CARB LOG</div>
           <div className="metricValue">{foodEntries.length ? foodEntries[0].value : '—'} <span>portions latest</span></div>
           <div className="miniRows">
-            {foodEntries.length ? foodEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value} portion{item.value === 1 ? '' : 's'}</b></div>) : <div><span>—</span><b>No food logged</b></div>}
+            {foodEntries.length ? foodEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value} portion{item.value === 1 ? '' : 's'}</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No food logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('food')}>🍴 LOG FOOD</button>
         </article>
@@ -368,7 +450,7 @@ export default function Dashboard() {
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
       <section className="card timelineCard">
-        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · tap a manual entry to edit</p></div></div>
+        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · manual entries are saved on this device</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
           {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail} · Tap to edit</span></div></div>)}
@@ -380,6 +462,7 @@ export default function Dashboard() {
       {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => deleteEntry(selectedEntry)}>🗑️ DELETE ENTRY</button></section></div>}
 
       {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton">📷 Estimate from photo</button><button className="confirmButton compactConfirm" disabled={selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+
       <style>{`
         .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
         .chartControls button { border:1px solid #dce5ea; background:#fff; border-radius:999px; padding:7px 12px; font-weight:850; cursor:pointer; color:#526873; }
@@ -389,8 +472,8 @@ export default function Dashboard() {
         .chartLegend .low { color:#2563eb; } .chartLegend .low::before { background:#3b82f6; }
         .chartLegend .inRange { color:#087966; } .chartLegend .inRange::before { background:#00a889; }
         .chartLegend .high { color:#dc2626; } .chartLegend .high::before { background:#ef4444; }
-        .chartInteractive { position:relative; margin-top:8px; }
-        .chartInteractive svg { touch-action:none; cursor:crosshair; margin-top:4px; }
+        .chartInteractive { position:relative; margin-top:8px; width:100%; }
+        .chartInteractive svg { touch-action:none; cursor:crosshair; margin-top:4px; max-width:none !important; }
         .chartHoverReadout { min-height:36px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#526873; font-size:17px; font-weight:750; }
         .chartHoverReadout b { color:#10232f; font-size:24px; line-height:1; }
         .hoverGuide { stroke:#8da0a8; stroke-width:1; stroke-dasharray:4 4; }
