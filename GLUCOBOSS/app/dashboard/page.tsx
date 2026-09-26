@@ -337,7 +337,7 @@ export default function Dashboard() {
       </section>
 
       <section className="card graphCard">
-        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText} · app checks every minute` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
+        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText}` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
         <div className="chartControls" aria-label="Chart time range">
           {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
         </div>
@@ -391,8 +391,8 @@ export default function Dashboard() {
         .chartLegend .high { color:#dc2626; } .chartLegend .high::before { background:#ef4444; }
         .chartInteractive { position:relative; margin-top:8px; }
         .chartInteractive svg { touch-action:none; cursor:crosshair; margin-top:4px; }
-        .chartHoverReadout { min-height:28px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; color:#667985; font-size:12px; }
-        .chartHoverReadout b { color:#10232f; font-size:14px; }
+        .chartHoverReadout { min-height:36px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#526873; font-size:17px; font-weight:750; }
+        .chartHoverReadout b { color:#10232f; font-size:24px; line-height:1; }
         .hoverGuide { stroke:#8da0a8; stroke-width:1; stroke-dasharray:4 4; }
         .compactGrid { gap:7px !important; margin-top:12px !important; }
         .compactGrid button { min-height:54px !important; font-size:22px !important; border-radius:14px !important; }
@@ -409,7 +409,8 @@ export default function Dashboard() {
           .compactFields { grid-template-columns:1fr 1fr; }
           .chartControls { justify-content:center; }
           .chartLegend { justify-content:center; gap:10px; }
-          .chartHoverReadout { justify-content:center; text-align:center; }
+          .chartHoverReadout { justify-content:center; text-align:center; font-size:16px; }
+          .chartHoverReadout b { font-size:22px; }
         }
       `}</style>
     </main>
