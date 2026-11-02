@@ -261,6 +261,76 @@ export default function Dashboard() {
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
   const [voiceMessage, setVoiceMessage] = useState('');
+  const [assistantListening, setAssistantListening] = useState(false);
+  const [assistantMessage, setAssistantMessage] = useState('Tap to talk to GLUCOBOSS.');
+  const assistantRecognition = useRef<any>(null);
+  const assistantSpeaking = useRef(false);
+
+  function speakAssistant(message: string) {
+    setAssistantMessage(message);
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = 'en-GB';
+    utterance.rate = 0.95;
+    assistantSpeaking.current = true;
+    utterance.onend = () => { assistantSpeaking.current = false; };
+    utterance.onerror = () => { assistantSpeaking.current = false; };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function respondToAssistant(question: string) {
+    const q = question.toLowerCase().replace(/gluco\s*boss[,.]?/g, '').trim();
+    const fresh = Boolean(cgm?.ok && cgm.latest && Number.isFinite(Date.parse(cgm.latest.timestamp)));
+    const minutes = fresh ? Math.max(0, Math.floor((Date.now() - Date.parse(cgm!.latest!.timestamp)) / 60000)) : null;
+    const reading = fresh ? cgm!.latest!.glucose : null;
+    const valid = reading !== null && minutes !== null && minutes < 8;
+    const glucoseReply = () => {
+      if (!valid) return 'I do not have a recent glucose reading for Jazz. Please check Dexcom directly.';
+      const range = reading! < 70 ? 'low' : reading! > 180 ? 'above range' : 'in range';
+      const trend = trendArrow(cgm!.latest!.trend, cgm!.latest!.glucose - (cgm?.previous?.glucose ?? cgm!.latest!.glucose));
+      const trendText = trend === '↑' || trend === '↗' ? 'rising' : trend === '↓' || trend === '↘' ? 'falling' : 'steady';
+      return `Jazz's latest reading is ${reading} milligrams per decilitre, from ${minutes} minute${minutes === 1 ? '' : 's'} ago. He is ${range}, and the trend is ${trendText}.` + (reading! < 70 ? ' This is low. Follow Jazz\'s prescribed hypo treatment plan and check his Dexcom.' : '');
+    };
+    if (/glucose|sugar|reading|level|how is jazz|how.s jazz|high|low|dropping|rising|trend/.test(q)) return speakAssistant(glucoseReply());
+    if (/insulin|injection|dose|units/.test(q)) {
+      const last = timeline.filter(x => x.kind === 'insulin').sort((a,b) => Date.parse(b.occurredAt || b.createdAt || '') - Date.parse(a.occurredAt || a.createdAt || ''))[0];
+      return speakAssistant(last ? `The last recorded insulin entry was ${last.value} units at ${loggedClock(last)}. This is a recorded entry, not an insulin-on-board calculation.` : 'No recorded insulin entry is available. Please verify against your insulin records.');
+    }
+    if (/food|carb|portion|eat|meal/.test(q)) {
+      const last = timeline.filter(x => x.kind === 'food').sort((a,b) => Date.parse(b.occurredAt || b.createdAt || '') - Date.parse(a.occurredAt || a.createdAt || ''))[0];
+      return speakAssistant(last ? `The last recorded food entry was ${last.value} portions, equivalent to ${last.value * 20} grams of carbohydrate, at ${loggedClock(last)}. Older entries may have used a different portion definition.` : 'No recorded food entry is available.');
+    }
+    speakAssistant('You can ask me about Jazz\'s latest glucose reading, glucose trend, last recorded insulin, or food portions.');
+  }
+
+  function startAssistant() {
+    if (assistantListening) {
+      assistantRecognition.current?.stop();
+      return;
+    }
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!Recognition) {
+      setAssistantMessage('Speech recognition is unavailable in this browser. Try Chrome on Android.');
+      return;
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    const recognition = new Recognition();
+    assistantRecognition.current = recognition;
+    recognition.lang = 'en-GB';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => { setAssistantListening(true); setAssistantMessage('Listening…'); };
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[0]?.[0]?.transcript || '');
+      setAssistantListening(false);
+      respondToAssistant(transcript);
+    };
+    recognition.onerror = (event: any) => { setAssistantListening(false); setAssistantMessage(`Microphone error: ${event.error || 'unknown'}. Try again.`); };
+    recognition.onend = () => setAssistantListening(false);
+    try { recognition.start(); } catch { setAssistantMessage('Unable to start microphone. Check permissions.'); setAssistantListening(false); }
+  }
+
 
   async function loadCgm() {
     try {
@@ -535,6 +605,14 @@ export default function Dashboard() {
   return (
     <main className="pageShell">
       <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><a href="/recipes" style={{ color: '#087c70', fontWeight: 800, fontSize: 13 }}>🍽️ Recipe Guide</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
+
+      <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button type="button" onClick={startAssistant} aria-pressed={assistantListening} style={{ border: 0, borderRadius: 999, background: assistantListening ? '#b91c1c' : '#087c70', color: 'white', padding: '13px 20px', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>{assistantListening ? '■ Stop listening' : '🎤 Tap to Talk'}</button>
+          <span style={{ flex: 1, minWidth: 180, fontSize: 14, color: '#334155' }} role="status" aria-live="polite">{assistantMessage}</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
+      </section>
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong style={{ color: live ? glucoseColour(previousValue) : undefined }}>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
