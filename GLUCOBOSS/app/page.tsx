@@ -28,21 +28,21 @@ export default function Home() {
             <div className="phoneTop"><span>9:41</span><span>● ● ●</span></div>
             <div className="phoneBrand">GLUCO<span>BOSS</span></div>
             <div className="phoneGlucose">
-              <small>CURRENT GLUCOSE</small>
+              <small>ILLUSTRATIVE GLUCOSE</small>
               <div><strong>112</strong><b>→</b></div>
-              <span>mg/dL · now</span>
+              <span>mg/dL · example only</span>
             </div>
             <div className="miniGraph" aria-hidden="true">
               <svg viewBox="0 0 320 95"><path d="M5,70 C30,55 45,65 70,48 S110,35 135,50 S175,72 205,44 S250,42 315,28" fill="none"/><line x1="0" x2="320" y1="22" y2="22"/><line x1="0" x2="320" y1="77" y2="77"/></svg>
             </div>
             <div className="phoneTiles">
-              <div><small>INSULIN ON BOARD</small><strong>2.1 <em>u</em></strong></div>
-              <div><small>CARBS ON BOARD</small><strong>1.5 <em>portions</em></strong></div>
+              <div><small>INSULIN ON BOARD · PLANNED</small><strong>—</strong></div>
+              <div><small>CARBS ON BOARD · PLANNED</small><strong>—</strong></div>
             </div>
             <button>＋ Quick log</button>
           </div>
-          <div className="floatingCard photoCard"><span>📷</span><div><b>Photo carb estimate</b><small>Estimate first. Weigh to verify.</small></div></div>
-          <div className="floatingCard cgmCard"><span>↗</span><div><b>Live CGM</b><small>Connected and updating</small></div></div>
+          <div className="floatingCard photoCard"><span>📷</span><div><b>Photo carb estimate · planned</b><small>Not yet available</small></div></div>
+          <div className="floatingCard cgmCard"><span>↗</span><div><b>Live CGM</b><small>Available in signed-in dashboard</small></div></div>
         </div>
       </section>
 
