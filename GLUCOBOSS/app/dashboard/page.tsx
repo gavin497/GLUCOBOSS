@@ -484,16 +484,18 @@ export default function Dashboard() {
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
         <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
-        <div className="onBoardSummary" aria-label="Insulin and carbohydrates on board">
-          <div className="onBoardMetric" title="Insulin on board requires a validated insulin-action model and confirmed insulin settings.">
+        <div className="onBoardSummary" aria-label="Insulin and carbohydrate status">
+          <div className="onBoardMetric" title="Insulin on board is not calculated until a clinician-approved insulin-action model and insulin settings have been configured.">
             <span className="onBoardLabel">IOB <span className="onBoardFullLabel">· Insulin on board</span></span>
-            <div className="onBoardValue">— <span>units</span></div>
-            <span className="onBoardHint">Calculation not configured</span>
+            <div className="onBoardValue">— <span>units active</span></div>
+            <span className="onBoardHint">Not calculated yet</span>
+            <span className="onBoardLatest" aria-live="polite">{insulinEntries.length ? `Last logged: ${insulinEntries[0].value.toFixed(1)} u · ${loggedDate(insulinEntries[0])}` : timelineLoaded ? 'No insulin logged' : 'Loading insulin log…'}</span>
           </div>
-          <div className="onBoardMetric" title="Carbs on board requires a validated carbohydrate-absorption model.">
+          <div className="onBoardMetric" title="Carbs on board is not calculated until a validated carbohydrate-absorption model has been configured.">
             <span className="onBoardLabel">COB <span className="onBoardFullLabel">· Carbs on board</span></span>
-            <div className="onBoardValue">— <span>grams</span></div>
-            <span className="onBoardHint">Calculation not configured</span>
+            <div className="onBoardValue">— <span>grams active</span></div>
+            <span className="onBoardHint">Not calculated yet</span>
+            <span className="onBoardLatest" aria-live="polite">{foodEntries.length ? `Last logged: ${Math.round(foodEntries[0].value * 10)} g · ${loggedDate(foodEntries[0])}` : timelineLoaded ? 'No food logged' : 'Loading food log…'}</span>
           </div>
         </div>
       </section>
