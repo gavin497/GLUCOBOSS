@@ -34,6 +34,32 @@ a { color: inherit; }
 .trend { font-size: 52px; color: #5fe2c9; line-height: 1; }
 .changeBadge { align-self: center; justify-self: end; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 14px 16px; border-radius: 18px; font-size: 24px; font-weight: 900; }
 
+/* Always-visible, read-only IOB/COB status directly beneath the glucose readings. */
+.onBoardSummary {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .19);
+}
+.onBoardMetric {
+  min-width: 0;
+  border-radius: 15px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .09);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.onBoardLabel { font-size: 12px; font-weight: 900; letter-spacing: .06em; }
+.onBoardFullLabel { font-weight: 600; letter-spacing: 0; opacity: .8; }
+.onBoardValue { font-size: 32px; line-height: 1.15; font-weight: 900; margin-top: 3px; }
+.onBoardValue span { font-size: 12px; font-weight: 600; opacity: .85; }
+.onBoardHint { font-size: 11px; opacity: .8; }
+.onBoardLatest { display: block; font-size: 11px; color: #b9f6e8; margin-top: 7px; line-height: 1.35; overflow-wrap: anywhere; }
+
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); }
 .graphCard { margin-top: 18px; padding: 22px; }
 .cardHeader { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
@@ -230,6 +256,14 @@ a { color: inherit; }
   .readingGroup.current strong { font-size: 64px; }
   .trend { font-size: 36px; }
   .unit { font-size: 12px; }
+  .onBoardSummary { gap: 8px; padding-top: 10px; }
+  .onBoardMetric { padding: 9px 10px; border-radius: 12px; }
+  .onBoardFullLabel { display: none; }
+  .onBoardLabel { font-size: 11px; }
+  .onBoardValue { font-size: 25px; }
+  .onBoardValue span { font-size: 10px; }
+  .onBoardHint { font-size: 10px; }
+  .onBoardLatest { font-size: 10px; margin-top: 5px; }
   .graphCard { padding: 16px; }
   .graphCard svg { height: 150px; }
   .metricsGrid { grid-template-columns: 1fr; gap: 12px; }
