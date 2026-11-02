@@ -24,7 +24,7 @@ a { color: inherit; }
 .subtitle { color: var(--muted); font-size: 14px; margin-top: 3px; }
 .profileButton { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; font-weight: 800; display: grid; place-items: center; text-decoration: none; }
 
-.glucoseHero { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 18px; align-items: end; background: linear-gradient(135deg, #10232f, #173a47); color: white; padding: 28px; border-radius: 28px; box-shadow: var(--shadow); }
+.glucoseHero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; align-items: end; background: linear-gradient(135deg, #10232f, #173a47); color: white; padding: 28px; border-radius: 28px; box-shadow: var(--shadow); }
 .readingGroup { display: flex; flex-direction: column; }
 .readingGroup strong { font-size: clamp(48px, 8vw, 82px); line-height: 0.95; letter-spacing: -0.06em; }
 .readingGroup.current strong { font-size: clamp(64px, 10vw, 104px); }
@@ -32,7 +32,9 @@ a { color: inherit; }
 .unit { margin-top: 6px; opacity: .72; font-size: 14px; }
 .currentLine { display: flex; gap: 16px; align-items: center; }
 .trend { font-size: 52px; color: #5fe2c9; line-height: 1; }
-.changeBadge { align-self: center; justify-self: end; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 14px 16px; border-radius: 18px; font-size: 24px; font-weight: 900; }
+.changeBadge { display: flex; flex-wrap: wrap; align-items: center; align-self: flex-start; gap: 4px 8px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 7px 10px; border-radius: 12px; font-weight: 900; margin-top: 9px; }
+.changeBadgeLabel { font-size: 11px; letter-spacing: .035em; color: #d8f0ec; }
+.changeBadgeValue { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; }
 
 /* Large-print last insulin and food records directly below the glucose readings. */
 .onBoardSummary {
@@ -266,7 +268,9 @@ a { color: inherit; }
   .brand { font-size: 24px; }
   .subtitle { display: none; }
   .glucoseHero { grid-template-columns: .8fr 1.2fr; padding: 20px 16px; border-radius: 22px; gap: 8px; }
-  .changeBadge { position: absolute; right: 24px; margin-top: 92px; font-size: 16px; padding: 8px 10px; }
+  .changeBadge { position: static; margin-top: 7px; padding: 6px 8px; gap: 3px 6px; }
+  .changeBadgeLabel { font-size: 10px; }
+  .changeBadgeValue { font-size: 17px; }
   .readingGroup strong { font-size: 44px; }
   .readingGroup.current strong { font-size: 64px; }
   .trend { font-size: 36px; }
