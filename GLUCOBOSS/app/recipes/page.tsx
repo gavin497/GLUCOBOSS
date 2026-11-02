@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { cacheEntries, readCachedEntries, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
 
 type Recipe = {
   id: string;
@@ -12,20 +13,6 @@ type Recipe = {
   ingredients: string[];
   method: string[];
 };
-
-type TimelineItem = {
-  id: string;
-  kind: 'insulin' | 'food';
-  value: number;
-  time: string;
-  icon: string;
-  title: string;
-  detail: string;
-  createdAt?: string;
-  foodDetails?: string;
-};
-
-const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
 
 const recipes: Recipe[] = [
   {
@@ -120,6 +107,7 @@ export default function RecipesPage() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [message, setMessage] = useState('');
+  const [logging, setLogging] = useState(false);
 
   const filtered = useMemo(() => recipes.filter((recipe) => {
     const mealMatches = meal === 'All' || recipe.meal === meal;
@@ -128,13 +116,14 @@ export default function RecipesPage() {
     return mealMatches && searchMatches;
   }), [meal, search]);
 
-  function logRecipe(recipe: Recipe) {
+  async function logRecipe(recipe: Recipe) {
+    if (logging) return;
+    setLogging(true);
+    setMessage('');
     try {
-      const raw = window.localStorage.getItem(LOG_STORAGE_KEY);
-      const existing = raw ? JSON.parse(raw) : [];
-      const timeline: TimelineItem[] = Array.isArray(existing) ? existing : [];
       const portions = recipe.carbs / 10;
-      const entry: TimelineItem = {
+      const now = new Date();
+      const saved = await saveEntry({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         kind: 'food',
         value: portions,
@@ -143,12 +132,15 @@ export default function RecipesPage() {
         foodDetails: recipe.title,
         title: recipe.title,
         detail: `${portions} portion${portions === 1 ? '' : 's'} · ~${recipe.carbs}g carbohydrate · recipe estimate`,
-        createdAt: new Date().toISOString(),
-      };
-      window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify([entry, ...timeline]));
-      setMessage(`${recipe.title} added to the carb log as ~${recipe.carbs}g carbohydrate. Verify the actual ingredients and portion before using the carb figure.`);
-    } catch {
-      setMessage('Could not save this recipe to the carb log in this browser.');
+        createdAt: now.toISOString(),
+        occurredAt: now.toISOString(),
+      });
+      cacheEntries(sortEntries([saved, ...readCachedEntries().filter(item => item.id !== saved.id)]));
+      setMessage(`${recipe.title} saved to the shared family carb log as ~${recipe.carbs}g. Verify actual ingredients and portions before using the estimate.`);
+    } catch (error) {
+      setMessage(`NOT SAVED: ${error instanceof Error ? error.message : 'Unable to reach cloud log'}. Please try again.`);
+    } finally {
+      setLogging(false);
     }
   }
 
