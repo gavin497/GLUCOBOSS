@@ -2,15 +2,14 @@
 
 import { useEffect, useState } from 'react';
 
-type MealKey = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+type MealKey = 'breakfast' | 'lunch' | 'dinner';
 type RatioKey = `${MealKey}Units` | `${MealKey}Grams`;
-type SettingKey = RatioKey | 'sensitivity' | 'target' | 'duration' | 'increment' | 'rapidInsulin';
+type SettingKey = RatioKey | 'sensitivity' | 'target' | 'duration' | 'increment' | 'rapidInsulin' | 'lantusUnits' | 'lantusTime';
 type Setting = { key: SettingKey; label: string; unit: string; help: string };
 const ratioFields: { key: MealKey; label: string }[] = [
   { key: 'breakfast', label: 'Breakfast' },
   { key: 'lunch', label: 'Lunch' },
   { key: 'dinner', label: 'Dinner' },
-  { key: 'snack', label: 'Snacks' },
 ];
 const correctionFields: Setting[] = [
   { key: 'sensitivity', label: 'Correction factor (ISF)', unit: 'mg/dL per 1 unit', help: 'How much one unit is prescribed to lower glucose' },
@@ -22,8 +21,7 @@ const initialValues: Record<SettingKey, string> = {
   breakfastUnits: '', breakfastGrams: '',
   lunchUnits: '', lunchGrams: '',
   dinnerUnits: '', dinnerGrams: '',
-  snackUnits: '', snackGrams: '',
-  sensitivity: '', target: '', duration: '', increment: '', rapidInsulin: '',
+  sensitivity: '', target: '', duration: '', increment: '', rapidInsulin: '', lantusUnits: '', lantusTime: '',
 };
 function positiveNumber(value: string) {
   const n = Number(value);
@@ -68,6 +66,10 @@ export default function CalculatorSetupPage() {
         return;
       }
     }
+    if (values.lantusUnits.trim() && !positiveNumber(values.lantusUnits)) {
+      setSaveStatus('Cannot save: Lantus units must be a positive number.');
+      return;
+    }
     try {
       const now = new Date().toISOString();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ values, savedAt: now }));
@@ -92,6 +94,8 @@ export default function CalculatorSetupPage() {
       }),
       ...correctionFields.filter((field) => values[field.key].trim()).map((field) => `${field.label}: ${values[field.key].trim()} ${field.unit}`),
       ...(values.rapidInsulin.trim() ? [`Rapid-acting insulin: ${values.rapidInsulin.trim()}`] : []),
+      ...(values.lantusUnits.trim() ? [`Prescribed Lantus overnight basal: ${values.lantusUnits.trim()} units`]: []),
+      ...(values.lantusTime.trim() ? [`Scheduled Lantus time: ${values.lantusTime.trim()}`]: []),
     ];
     if (rows.length === 1) {
       setCopyStatus('Enter the prescribed settings first.');
@@ -105,7 +109,7 @@ export default function CalculatorSetupPage() {
     }
   }
   const completeRatios = ratioFields.filter((field) => positiveNumber(values[`${field.key}Units`]) && positiveNumber(values[`${field.key}Grams`])).length;
-  const enteredCount = completeRatios + correctionFields.filter((field) => values[field.key].trim()).length + (values.rapidInsulin.trim() ? 1 : 0);
+  const enteredCount = completeRatios + correctionFields.filter((field) => values[field.key].trim()).length + (values.rapidInsulin.trim() ? 1 : 0) + (values.lantusUnits.trim() ? 1 : 0) + (values.lantusTime.trim() ? 1 : 0);
 
   return (
     <main className="calcPage">
@@ -159,8 +163,23 @@ export default function CalculatorSetupPage() {
         </div>
       </section>
 
+      <section className="calcSection">
+        <div className="calcSectionHead"><span className="calcNumber">3</span><div><h2>Overnight long-acting insulin — Lantus</h2><p>Record Jazz&apos;s prescribed basal insulin schedule. This is for reference only, not a calculator for changing the Lantus dose.</p></div></div>
+        <div className="calcFields">
+          <label className="calcField">
+            <span>Prescribed Lantus dose (units)</span>
+            <div className="calcInputWrap"><input type="number" min="0.1" step="any" inputMode="decimal" value={values.lantusUnits} onChange={(event) => update('lantusUnits', event.target.value)} placeholder="From care plan" aria-label="Prescribed overnight Lantus dose in units"/><small>units</small></div>
+          </label>
+          <label className="calcField">
+            <span>Usual overnight injection time</span>
+            <div className="calcInputWrap"><input type="time" value={values.lantusTime} onChange={(event) => update('lantusTime', event.target.value)} aria-label="Usual Lantus injection time"/></div>
+          </label>
+        </div>
+        <p className="calcRatioHelp">Lantus is long-acting basal insulin, separate from meal and correction doses. This setting does not calculate, recommend, adjust, or record an injection. Follow Jazz&apos;s prescribed plan.</p>
+      </section>
+
       <section className="calcSection calcPreview">
-        <div className="calcSectionHead"><span className="calcNumber">3</span><div><h2>Estimator design</h2><p>Planned calculation stages — no active dose output yet.</p></div></div>
+        <div className="calcSectionHead"><span className="calcNumber">4</span><div><h2>Estimator design</h2><p>Planned calculation stages — no active dose output yet.</p></div></div>
         <ol className="calcSteps">
           <li>Read planned carbohydrate grams and select the prescribed meal ratio.</li>
           <li>Check current glucose, its timestamp and the prescribed correction settings.</li>
@@ -173,7 +192,7 @@ export default function CalculatorSetupPage() {
 
       <section className="calcSection calcReview">
         <h2>Share settings for review</h2>
-        <p>Entered {enteredCount} of 9 settings ({completeRatios} of 4 complete meal ratios). Save to keep them on this phone. <strong>Settings are stored only on this device, not synced to other family members.</strong></p>
+        <p>Entered {enteredCount} of 10 settings ({completeRatios} of 3 complete meal ratios). Save to keep them on this phone. <strong>Settings are stored only on this device, not synced to other family members.</strong></p>
         <button type="button" onClick={saveSettings} className="calcCopy">{dirty ? 'Save changes' : 'Save settings'}</button>
         <button type="button" onClick={copyForReview} className="calcCopy" style={{ marginLeft: 10, background: '#294958' }}>Copy prescribed settings</button>
         {saveStatus && <p className="calcFeedback" role="status">{saveStatus}</p>}
