@@ -36,33 +36,33 @@ a { color: inherit; }
 .changeBadgeLabel { font-size: 11px; letter-spacing: .035em; color: #d8f0ec; }
 .changeBadgeValue { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; }
 
-/* Large-print last insulin and food records directly below the glucose readings. */
+/* Single-line insulin/food rows: amount, local time and day are aligned. */
 .onBoardSummary {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding-top: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  padding-top: 11px;
   border-top: 1px solid rgba(255, 255, 255, .19);
 }
 .onBoardMetric {
   min-width: 0;
-  border-radius: 15px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, .16);
   background: rgba(255, 255, 255, .09);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  padding: 8px 14px;
+  display: grid;
+  grid-template-columns: 122px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
 }
-.onBoardLabel { font-size: 16px; font-weight: 900; letter-spacing: .015em; }
-.onBoardLoggedValue { font-size: 43px; font-weight: 900; line-height: 1.08; margin-top: 8px; font-variant-numeric: tabular-nums; }
-.onBoardTimeBlock { display: flex; flex-direction: column; gap: 1px; margin-top: 5px; }
-.onBoardEventTime { color: #fff; font-size: 26px; font-weight: 900; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.onBoardEventDate { color: #e2f5f2; font-size: 17px; font-weight: 750; line-height: 1.25; }
-.onBoardEmpty { color: #e2f5f2; font-size: 16px; font-weight: 750; margin-top: 9px; }
-.onBoardPending { font-size: 15px; font-weight: 800; border-top: 1px solid rgba(255,255,255,.22); width: 100%; margin-top: 10px; padding-top: 9px; color: #fff; }
-.onBoardPending span { font-size: 14px; font-weight: 650; color: #e2f5f2; }
+.onBoardLabel { font-size: 17px; font-weight: 900; letter-spacing: .015em; white-space: nowrap; }
+.onBoardInline { display: flex; align-items: baseline; justify-content: flex-start; gap: 17px; min-width: 0; white-space: nowrap; color: #fff; font-variant-numeric: tabular-nums; }
+.onBoardInline.isRecent { color: #74f5ac; }
+.onBoardLoggedValue { font-size: 29px; font-weight: 900; line-height: 1.15; }
+.onBoardEventTime { font-size: 24px; font-weight: 850; line-height: 1.15; }
+.onBoardEventDate { font-size: 20px; font-weight: 750; line-height: 1.15; }
+.onBoardEmpty { color: #e2f5f2; font-size: 17px; font-weight: 750; }
 
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); }
@@ -275,15 +275,14 @@ a { color: inherit; }
   .readingGroup.current strong { font-size: 64px; }
   .trend { font-size: 36px; }
   .unit { font-size: 12px; }
-  .onBoardSummary { gap: 8px; padding-top: 10px; }
-  .onBoardMetric { padding: 11px 10px; border-radius: 12px; }
-  .onBoardLabel { font-size: 14px; }
-  .onBoardLoggedValue { font-size: 36px; margin-top: 7px; }
-  .onBoardEventTime { font-size: 24px; }
-  .onBoardEventDate { font-size: 16px; }
+  .onBoardSummary { gap: 6px; padding-top: 9px; }
+  .onBoardMetric { grid-template-columns: 74px minmax(0, 1fr); gap: 6px; padding: 9px 9px; border-radius: 11px; }
+  .onBoardLabel { font-size: 13px; }
+  .onBoardInline { gap: clamp(5px, 1.7vw, 12px); }
+  .onBoardLoggedValue { font-size: clamp(18px, 5.2vw, 23px); }
+  .onBoardEventTime { font-size: clamp(17px, 4.8vw, 22px); }
+  .onBoardEventDate { font-size: clamp(15px, 4.2vw, 19px); }
   .onBoardEmpty { font-size: 15px; }
-  .onBoardPending { font-size: 14px; margin-top: 9px; padding-top: 8px; }
-  .onBoardPending span { font-size: 13px; }
   .chartEventChip { min-height: 50px; font-size: 16px; padding: 8px 11px; }
   .chartEventChip strong { font-size: 18px; }
 
