@@ -484,6 +484,18 @@ export default function Dashboard() {
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
         <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
+        <div className="onBoardSummary" aria-label="Insulin and carbohydrates on board">
+          <div className="onBoardMetric" title="Insulin on board requires a validated insulin-action model and confirmed insulin settings.">
+            <span className="onBoardLabel">IOB <span className="onBoardFullLabel">· Insulin on board</span></span>
+            <div className="onBoardValue">— <span>units</span></div>
+            <span className="onBoardHint">Calculation not configured</span>
+          </div>
+          <div className="onBoardMetric" title="Carbs on board requires a validated carbohydrate-absorption model.">
+            <span className="onBoardLabel">COB <span className="onBoardFullLabel">· Carbs on board</span></span>
+            <div className="onBoardValue">— <span>grams</span></div>
+            <span className="onBoardHint">Calculation not configured</span>
+          </div>
+        </div>
       </section>
 
       <section className="card graphCard">
