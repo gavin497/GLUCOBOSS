@@ -86,8 +86,8 @@ function trendArrow(trend?: string, delta = 0) {
 }
 
 function glucoseColour(v: number) {
-  if (v < 70) return '#3b82f6';
-  if (v > 180) return '#ef4444';
+  if (v < 70) return '#dc2626';
+  if (v > 180) return '#eab308';
   return '#00a889';
 }
 
@@ -188,17 +188,17 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
       >
         <defs>
           <linearGradient id="glucoseRangeGradient" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#ef4444" />
-            <stop offset={`${highBoundary}%`} stopColor="#ef4444" />
+            <stop offset="0%" stopColor="#eab308" />
+            <stop offset={`${highBoundary}%`} stopColor="#eab308" />
             <stop offset={`${Math.min(100, highBoundary + 0.1)}%`} stopColor="#00a889" />
             <stop offset={`${lowBoundary}%`} stopColor="#00a889" />
-            <stop offset={`${Math.min(100, lowBoundary + 0.1)}%`} stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#3b82f6" />
+            <stop offset={`${Math.min(100, lowBoundary + 0.1)}%`} stopColor="#dc2626" />
+            <stop offset="100%" stopColor="#dc2626" />
           </linearGradient>
         </defs>
-        <rect x="0" y="0" width={width} height={Math.max(0, y(180))} fill="rgba(239,68,68,.06)" />
+        <rect x="0" y="0" width={width} height={Math.max(0, y(180))} fill="rgba(234,179,8,.12)" />
         <rect x="0" y={y(180)} width={width} height={Math.max(0, y(70) - y(180))} fill="rgba(0,168,137,.07)" />
-        <rect x="0" y={y(70)} width={width} height={Math.max(0, height - y(70))} fill="rgba(59,130,246,.07)" />
+        <rect x="0" y={y(70)} width={width} height={Math.max(0, height - y(70))} fill="rgba(220,38,38,.09)" />
         <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
         <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
         {chartEvents.map((event) => {
@@ -528,8 +528,7 @@ export default function Dashboard() {
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
-        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
-        <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
+        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span><div className="changeBadge"><span className="changeBadgeLabel">GLUCOSE CHANGE</span><span className="changeBadgeValue">{live ? `${delta > 0 ? '+' : ''}${delta} mg/dL` : '—'}</span></div></div>
         <div className="onBoardSummary" aria-label="Most recently logged insulin and food; not active insulin or carbs">
           <div className="onBoardMetric" aria-label="Last insulin log, not insulin on board">
             <span className="onBoardLabel">💉 LAST INSULIN</span>
@@ -604,9 +603,9 @@ export default function Dashboard() {
         .chartControls button.active { background:#10232f; color:#fff; border-color:#10232f; }
         .chartLegend { display:flex; gap:14px; align-items:center; margin-top:10px; font-size:11px; font-weight:850; flex-wrap:wrap; }
         .chartLegend span::before { content:''; display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
-        .chartLegend .low { color:#2563eb; } .chartLegend .low::before { background:#3b82f6; }
+        .chartLegend .low { color:#b91c1c; } .chartLegend .low::before { background:#dc2626; }
         .chartLegend .inRange { color:#087966; } .chartLegend .inRange::before { background:#00a889; }
-        .chartLegend .high { color:#dc2626; } .chartLegend .high::before { background:#ef4444; }
+        .chartLegend .high { color:#a16207; } .chartLegend .high::before { background:#eab308; }
         .chartInteractive { position:relative; margin-top:8px; width:100%; }
         .chartInteractive svg { touch-action:none; cursor:crosshair; margin-top:4px; max-width:none !important; }
         .chartHoverReadout { min-height:36px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; color:#526873; font-size:17px; font-weight:750; }
