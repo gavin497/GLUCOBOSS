@@ -54,8 +54,18 @@ function loggedDay(item: TimelineItem) {
   const value = item.occurredAt || item.createdAt;
   const date = value ? new Date(value) : null;
   return date && Number.isFinite(date.getTime())
-    ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     : 'Date unavailable';
+}
+
+// A visual recency cue only, not a pharmacokinetic IOB/COB calculation.
+ // Rapid insulin can act beyond four hours; meal absorption varies substantially.
+function isRecentlyLogged(item: TimelineItem, now: number) {
+  const timestamp = Date.parse(item.occurredAt || item.createdAt || '');
+  if (!Number.isFinite(timestamp)) return false;
+  const age = now - timestamp;
+  const windowMs = item.kind === 'insulin' ? 4 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  return age >= 0 && age < windowMs;
 }
 
 function insulinElapsed(item: TimelineItem, now: number) {
@@ -529,24 +539,26 @@ export default function Dashboard() {
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span><div className="changeBadge"><span className="changeBadgeLabel">GLUCOSE CHANGE</span><span className="changeBadgeValue">{live ? `${delta > 0 ? '+' : ''}${delta} mg/dL` : '—'}</span></div></div>
-        <div className="onBoardSummary" aria-label="Most recently logged insulin and food; not active insulin or carbs">
-          <div className="onBoardMetric" aria-label="Last insulin log, not insulin on board">
-            <span className="onBoardLabel">💉 LAST INSULIN</span>
-            <div className="onBoardLoggedValue" aria-live="polite">{insulinEntries.length ? `${insulinEntries[0].value.toFixed(1)} u` : '—'}</div>
-            {insulinEntries.length ? <div className="onBoardTimeBlock">
-              <strong className="onBoardEventTime">{loggedClock(insulinEntries[0])}</strong>
+        <div className="onBoardSummary" aria-label="Last logged insulin and food. Green indicates recent entries only, not measured insulin or carbohydrate activity.">
+          <div className="onBoardMetric" aria-label="Last logged rapid insulin">
+            <span className="onBoardLabel">💉 INSULIN</span>
+            {insulinEntries.length ? <div className={`onBoardInline${isRecentlyLogged(insulinEntries[0], clockTick) ? ' isRecent' : ''}`}
+              title="Green indicates a dose logged within the last four hours, not measured insulin on board or dosing guidance."
+              aria-live="polite">
+              <strong className="onBoardLoggedValue">{insulinEntries[0].value.toFixed(1)} u</strong>
+              <span className="onBoardEventTime">{loggedClock(insulinEntries[0])}</span>
               <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
-            <span className="onBoardPending">IOB: — <span>not calculated</span></span>
           </div>
-          <div className="onBoardMetric" aria-label="Last food log, not carbs on board">
-            <span className="onBoardLabel">🍴 LAST FOOD</span>
-            <div className="onBoardLoggedValue" aria-live="polite">{foodEntries.length ? `${Math.round(foodEntries[0].value * 10)} g` : '—'}</div>
-            {foodEntries.length ? <div className="onBoardTimeBlock">
-              <strong className="onBoardEventTime">{loggedClock(foodEntries[0])}</strong>
+          <div className="onBoardMetric" aria-label="Last logged food">
+            <span className="onBoardLabel">🍴 FOOD</span>
+            {foodEntries.length ? <div className={`onBoardInline${isRecentlyLogged(foodEntries[0], clockTick) ? ' isRecent' : ''}`}
+              title="Green indicates food logged within the last two hours, not measured carbs on board or a prediction of absorption."
+              aria-live="polite">
+              <strong className="onBoardLoggedValue">{Math.round(foodEntries[0].value * 10)} g</strong>
+              <span className="onBoardEventTime">{loggedClock(foodEntries[0])}</span>
               <span className="onBoardEventDate">{loggedDay(foodEntries[0])}</span>
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No food logged' : 'Loading…'}</span>}
-            <span className="onBoardPending">COB: — <span>not calculated</span></span>
           </div>
         </div>
       </section>
