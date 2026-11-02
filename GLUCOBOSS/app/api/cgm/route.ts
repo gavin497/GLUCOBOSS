@@ -67,7 +67,26 @@ async function getNightscoutEntries() {
   throw new Error(lastError);
 }
 
-export async function GET() {
+async function isApprovedFamilyRequest(request: Request): Promise<boolean> {
+  const authorization = request.headers.get('authorization');
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!authorization?.startsWith('Bearer ') || !supabaseUrl || !key) return false;
+  try {
+    const headers = { apikey: key, Authorization: authorization };
+    const identity = await fetch(`${supabaseUrl}/auth/v1/user`, { headers, cache: 'no-store' });
+    if (!identity.ok) return false;
+    const membership = await fetch(`${supabaseUrl}/rest/v1/family_members?select=email&enabled=eq.true&limit=1`, { headers, cache: 'no-store' });
+    if (!membership.ok) return false;
+    const rows = await membership.json();
+    return Array.isArray(rows) && rows.length > 0;
+  } catch { return false; }
+}
+
+export async function GET(request: Request) {
+  if (!(await isApprovedFamilyRequest(request))) {
+    return NextResponse.json({ ok: false, error: 'Family login required' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  }
   try {
     const { readings, endpoint } = await getNightscoutEntries();
     const latest = readings[readings.length - 1];
