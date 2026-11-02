@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 
-type SettingKey = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'sensitivity' | 'target' | 'duration' | 'increment' | 'rapidInsulin';
+type MealKey = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+type RatioKey = `${MealKey}Units` | `${MealKey}Grams`;
+type SettingKey = RatioKey | 'sensitivity' | 'target' | 'duration' | 'increment' | 'rapidInsulin';
 type Setting = { key: SettingKey; label: string; unit: string; help: string };
-const ratioFields: Setting[] = [
-  { key: 'breakfast', label: 'Breakfast', unit: 'g per 1 unit', help: 'Prescribed breakfast insulin-to-carbohydrate ratio' },
-  { key: 'lunch', label: 'Lunch', unit: 'g per 1 unit', help: 'Prescribed lunch insulin-to-carbohydrate ratio' },
-  { key: 'dinner', label: 'Dinner', unit: 'g per 1 unit', help: 'Prescribed dinner insulin-to-carbohydrate ratio' },
-  { key: 'snack', label: 'Snacks', unit: 'g per 1 unit', help: 'Prescribed snack ratio, if different' },
+const ratioFields: { key: MealKey; label: string }[] = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch', label: 'Lunch' },
+  { key: 'dinner', label: 'Dinner' },
+  { key: 'snack', label: 'Snacks' },
 ];
 const correctionFields: Setting[] = [
   { key: 'sensitivity', label: 'Correction factor (ISF)', unit: 'mg/dL per 1 unit', help: 'How much one unit is prescribed to lower glucose' },
@@ -16,11 +18,17 @@ const correctionFields: Setting[] = [
   { key: 'duration', label: 'Insulin action duration', unit: 'hours', help: 'Clinician-approved insulin activity setting for the rapid insulin used' },
   { key: 'increment', label: 'Dose increment', unit: 'units', help: 'Smallest increment available on the prescribed insulin pen' },
 ];
-const allFields = [...ratioFields, ...correctionFields];
 const initialValues: Record<SettingKey, string> = {
-  breakfast: '', lunch: '', dinner: '', snack: '',
+  breakfastUnits: '', breakfastGrams: '',
+  lunchUnits: '', lunchGrams: '',
+  dinnerUnits: '', dinnerGrams: '',
+  snackUnits: '', snackGrams: '',
   sensitivity: '', target: '', duration: '', increment: '', rapidInsulin: '',
 };
+function positiveNumber(value: string) {
+  const n = Number(value);
+  return value.trim() !== '' && Number.isFinite(n) && n > 0;
+}
 
 export default function CalculatorSetupPage() {
   const [values, setValues] = useState<Record<SettingKey, string>>(initialValues);
@@ -32,7 +40,12 @@ export default function CalculatorSetupPage() {
   async function copyForReview() {
     const rows = [
       'GLUCOBOSS — clinician-prescribed settings for review (NOT a dosing recommendation)',
-      ...allFields.filter((field) => values[field.key].trim()).map((field) => `${field.label}: ${values[field.key].trim()} ${field.unit}`),
+      ...ratioFields.filter((field) => values[`${field.key}Units`].trim() || values[`${field.key}Grams`].trim()).map((field) => {
+        const units = values[`${field.key}Units`];
+        const grams = values[`${field.key}Grams`];
+        return `${field.label}: ${positiveNumber(units) && positiveNumber(grams) ? `${units} units : ${grams} g carbs` : 'INCOMPLETE — needs both positive values'}`;
+      }),
+      ...correctionFields.filter((field) => values[field.key].trim()).map((field) => `${field.label}: ${values[field.key].trim()} ${field.unit}`),
       ...(values.rapidInsulin.trim() ? [`Rapid-acting insulin: ${values.rapidInsulin.trim()}`] : []),
     ];
     if (rows.length === 1) {
@@ -46,7 +59,8 @@ export default function CalculatorSetupPage() {
       setCopyStatus('Could not copy. You can share the prescribed settings directly in chat.');
     }
   }
-  const enteredCount = Object.values(values).filter((value) => value.trim()).length;
+  const completeRatios = ratioFields.filter((field) => positiveNumber(values[`${field.key}Units`]) && positiveNumber(values[`${field.key}Grams`])).length;
+  const enteredCount = completeRatios + correctionFields.filter((field) => values[field.key].trim()).length + (values.rapidInsulin.trim() ? 1 : 0);
 
   return (
     <main className="calcPage">
@@ -62,12 +76,27 @@ export default function CalculatorSetupPage() {
       </section>
 
       <section className="calcSection">
-        <div className="calcSectionHead"><span className="calcNumber">1</span><div><h2>Insulin-to-carb ratios</h2><p>Enter the grams of carbohydrate covered by <strong>1 unit</strong> of rapid insulin, as prescribed for each meal. Leave unknown values blank.</p></div></div>
+        <div className="calcSectionHead"><span className="calcNumber">1</span><div><h2>Insulin-to-carb ratios</h2><p>Enter <strong>both sides</strong> of the prescribed ratio: insulin units and grams of carbohydrate. For example, 0.5 units : 10 g. Leave unknown ratios blank.</p></div></div>
         <div className="calcFields">
-          {ratioFields.map((field) => <label key={field.key} className="calcField">
-            <span>{field.label}</span>
-            <div className="calcInputWrap"><input type="number" min="0.1" step="any" inputMode="decimal" value={values[field.key]} onChange={(event) => update(field.key, event.target.value)} placeholder="Not set" aria-label={field.help}/><small>{field.unit}</small></div>
-          </label>)}
+          {ratioFields.map((field) => {
+            const unitsKey: RatioKey = `${field.key}Units`;
+            const gramsKey: RatioKey = `${field.key}Grams`;
+            return <div key={field.key} className="calcField">
+              <strong className="calcMealName">{field.label}</strong>
+              <div className="calcRatioRow">
+                <label className="calcRatioPart">
+                  <span>Insulin units</span>
+                  <input type="number" min="0.01" step="any" inputMode="decimal" value={values[unitsKey]} onChange={(event) => update(unitsKey, event.target.value)} placeholder="e.g. 1" aria-label={`${field.label} insulin units`}/>
+                </label>
+                <span className="calcRatioColon" aria-hidden="true">:</span>
+                <label className="calcRatioPart">
+                  <span>Carbs (grams)</span>
+                  <input type="number" min="0.1" step="any" inputMode="decimal" value={values[gramsKey]} onChange={(event) => update(gramsKey, event.target.value)} placeholder="e.g. 15" aria-label={`${field.label} carbohydrate grams`}/>
+                </label>
+              </div>
+              {(values[unitsKey] || values[gramsKey]) && !(positiveNumber(values[unitsKey]) && positiveNumber(values[gramsKey])) && <p className="calcRatioHelp">Enter a positive number in both boxes.</p>}
+            </div>;
+          })}
         </div>
       </section>
 
@@ -99,7 +128,7 @@ export default function CalculatorSetupPage() {
 
       <section className="calcSection calcReview">
         <h2>Share settings for review</h2>
-        <p>Entered {enteredCount} of 9 settings. These inputs are temporary: they are <strong>not saved, synced or submitted</strong> to GLUCOBOSS.</p>
+        <p>Entered {enteredCount} of 9 settings ({completeRatios} of 4 complete meal ratios). These inputs are temporary: they are <strong>not saved, synced or submitted</strong> to GLUCOBOSS.</p>
         <button type="button" onClick={copyForReview} className="calcCopy">Copy prescribed settings</button>
         {copyStatus && <p className="calcFeedback" role="status">{copyStatus}</p>}
       </section>
@@ -121,7 +150,14 @@ export default function CalculatorSetupPage() {
         .calcSection p { margin: 0; font-size: 17px; line-height: 1.45; color: #405663; }
         .calcFields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
         .calcField { display: block; border: 1px solid #dbe5e9; border-radius: 14px; padding: 14px; min-width: 0; }
-        .calcField > span { display: block; font-size: 16px; font-weight: 900; margin-bottom: 9px; }
+        .calcField > span, .calcMealName { display: block; font-size: 16px; font-weight: 900; margin-bottom: 9px; }
+        .calcRatioRow { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: end; gap: 8px; }
+        .calcRatioPart { display: flex; flex-direction: column; min-width: 0; gap: 6px; }
+        .calcRatioPart span { font-size: 15px; font-weight: 800; color: #405663; }
+        .calcRatioPart input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 22px; font-weight: 800; padding: 12px 8px; border: 2px solid #afc5cc; border-radius: 11px; color: #10232f; background: #fff; }
+        .calcRatioPart input:focus { outline: 3px solid #76d6c4; outline-offset: 2px; }
+        .calcRatioColon { font-size: 26px; font-weight: 900; padding-bottom: 12px; }
+        .calcRatioHelp { color: #9a3412 !important; font-size: 14px !important; font-weight: 750; margin-top: 8px !important; }
         .calcInputWrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
         .calcInputWrap input { min-width: 0; width: 100%; max-width: 220px; font-size: 22px; font-weight: 750; padding: 12px 11px; border: 2px solid #afc5cc; border-radius: 11px; color: #10232f; background: #fff; }
         .calcInputWrap input:focus { outline: 3px solid #76d6c4; outline-offset: 2px; }
