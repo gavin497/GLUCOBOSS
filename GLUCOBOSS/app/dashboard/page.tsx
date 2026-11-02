@@ -620,16 +620,6 @@ export default function Dashboard() {
     <main className="pageShell">
       <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><a href="/recipes" style={{ color: '#087c70', fontWeight: 800, fontSize: 13 }}>🍽️ Recipe Guide</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
 
-      <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button type="button" onClick={startAssistant} aria-pressed={assistantListening} style={{ border: 0, borderRadius: 999, background: assistantListening ? '#b91c1c' : '#087c70', color: 'white', padding: '13px 20px', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>{assistantListening ? '■ Stop listening' : '🎤 Tap to Talk'}</button>
-          <span style={{ flex: 1, minWidth: 180, fontSize: 14, color: '#334155' }} role="status" aria-live="polite">{assistantMessage}</span>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
-      </section>
-
-      <GlucoseAlarms reading={live ? currentValue : undefined} timestamp={latest?.timestamp} connected={live} />
-
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong style={{ color: live ? glucoseColour(previousValue) : undefined }}>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong style={{ color: live ? glucoseColour(currentValue) : undefined }}>{live ? currentValue : '—'}</strong><span className="trend" style={{ color: live ? glucoseColour(currentValue) : undefined }}>{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span><div className="changeBadge"><span className="changeBadgeLabel">GLUCOSE CHANGE</span><span className="changeBadgeValue">{live ? `${delta > 0 ? '+' : ''}${delta} mg/dL` : '—'}</span></div></div>
@@ -656,6 +646,16 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button type="button" onClick={startAssistant} aria-pressed={assistantListening} style={{ border: 0, borderRadius: 999, background: assistantListening ? '#b91c1c' : '#087c70', color: 'white', padding: '13px 20px', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>{assistantListening ? '■ Stop listening' : '🎤 Tap to Talk'}</button>
+          <span style={{ flex: 1, minWidth: 180, fontSize: 14, color: '#334155' }} role="status" aria-live="polite">{assistantMessage}</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
+      </section>
+
+      <GlucoseAlarms reading={live ? currentValue : undefined} timestamp={latest?.timestamp} connected={live} />
 
       <section className="card graphCard">
         <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText}` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
