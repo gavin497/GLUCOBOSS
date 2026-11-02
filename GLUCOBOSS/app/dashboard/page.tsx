@@ -81,18 +81,32 @@ function insulinElapsed(item: TimelineItem, now: number) {
   return `${Math.floor(minutes / 60)} hr ${String(minutes % 60).padStart(2, '0')} min since injection · 1-hour mark passed`;
 }
 
-function trendArrow(trend?: string, delta = 0) {
-  const t = (trend ?? '').toLowerCase().replace(/[^a-z]/g, '');
-  if (t.includes('doubleup')) return '⇈';
-  if (t.includes('fortyfiveup') || t.includes('slightup') || t.includes('singelup')) return '↗';
-  if (t === 'up' || t.includes('singleup') || t.includes('rise')) return '↑';
-  if (t.includes('doubledown')) return '⇊';
-  if (t.includes('fortyfivedown') || t.includes('slightdown')) return '↘';
-  if (t === 'down' || t.includes('singledown') || t.includes('fall')) return '↓';
-  if (t.includes('flat') || t.includes('steady')) return '→';
-  if (delta >= 8) return '↗';
-  if (delta <= -8) return '↘';
-  return '→';
+function trendArrow(trend?: string, _delta = 0) {
+  // Preserve Dexcom/Nightscout direction exactly; adjacent-reading delta is NOT a trend arrow.
+  const raw = (trend ?? '').trim();
+  const t = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (raw === '↑↑' || raw === '⇈' || t.includes('doubleup')) return '↑↑';
+  if (raw === '↓↓' || raw === '⇊' || t.includes('doubledown')) return '↓↓';
+  if (raw === '↗' || t.includes('fortyfiveup') || t.includes('slightup')) return '↗';
+  if (raw === '↘' || t.includes('fortyfivedown') || t.includes('slightdown')) return '↘';
+  if (raw === '↑' || t === 'up' || t.includes('singleup')) return '↑';
+  if (raw === '↓' || t === 'down' || t.includes('singledown')) return '↓';
+  if (raw === '→' || t === 'flat' || t === 'steady') return '→';
+  return '—'; // Never claim steady when the trend is missing or unrecognised.
+}
+
+function spokenTrend(trend?: string) {
+  const arrow = trendArrow(trend);
+  switch (arrow) {
+    case '↑↑': return 'rising very rapidly, by more than 3 milligrams per decilitre per minute';
+    case '↑': return 'rising quickly, around 2 to 3 milligrams per decilitre per minute';
+    case '↗': return 'rising slowly, around 1 to 2 milligrams per decilitre per minute';
+    case '→': return 'relatively steady';
+    case '↘': return 'falling slowly, around 1 to 2 milligrams per decilitre per minute';
+    case '↓': return 'falling quickly, around 2 to 3 milligrams per decilitre per minute';
+    case '↓↓': return 'falling very rapidly, by more than 3 milligrams per decilitre per minute';
+    default: return 'not currently available from the sensor';
+  }
 }
 
 function glucoseColour(v: number) {
@@ -288,9 +302,8 @@ export default function Dashboard() {
     const glucoseReply = () => {
       if (!valid) return 'I do not have a recent glucose reading for Jazz. Please check Dexcom directly.';
       const range = reading! < 70 ? 'low' : reading! > 180 ? 'above range' : 'in range';
-      const trend = trendArrow(cgm!.latest!.trend, cgm!.latest!.glucose - (cgm?.previous?.glucose ?? cgm!.latest!.glucose));
-      const trendText = trend === '↑' || trend === '↗' ? 'rising' : trend === '↓' || trend === '↘' ? 'falling' : 'steady';
-      return `Jazz's latest reading is ${reading} milligrams per decilitre, from ${minutes} minute${minutes === 1 ? '' : 's'} ago. He is ${range}, and the trend is ${trendText}.` + (reading! < 70 ? ' This is low. Follow Jazz\'s prescribed hypo treatment plan and check his Dexcom.' : '');
+      const trendText = spokenTrend(cgm!.latest!.trend);
+      return `Jazz's latest reading is ${reading} milligrams per decilitre, from ${minutes} minute${minutes === 1 ? '' : 's'} ago. He is ${range}. His Dexcom trend is ${trendText}.` + (reading! < 70 ? ' This is low. Follow Jazz\'s prescribed hypo treatment plan and check his Dexcom.' : '');
     };
     if (/glucose|sugar|reading|level|how is jazz|how.s jazz|high|low|dropping|rising|trend/.test(q)) return speakAssistant(glucoseReply());
     if (/insulin|injection|dose|units/.test(q)) {
