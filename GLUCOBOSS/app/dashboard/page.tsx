@@ -484,18 +484,20 @@ export default function Dashboard() {
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
         <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
-        <div className="onBoardSummary" aria-label="Insulin and carbohydrate status">
-          <div className="onBoardMetric" title="Insulin on board is not calculated until a clinician-approved insulin-action model and insulin settings have been configured.">
+        <div className="onBoardSummary" aria-label="Latest logged insulin and carbohydrate amounts; IOB and COB not calculated">
+          <div className="onBoardMetric" title="The large figure is the last logged dose, NOT insulin still active. IOB needs clinician-confirmed insulin-action settings.">
             <span className="onBoardLabel">IOB <span className="onBoardFullLabel">· Insulin on board</span></span>
-            <div className="onBoardValue">— <span>units active</span></div>
-            <span className="onBoardHint">Not calculated yet</span>
-            <span className="onBoardLatest" aria-live="polite">{insulinEntries.length ? `Last logged: ${insulinEntries[0].value.toFixed(1)} u · ${loggedDate(insulinEntries[0])}` : timelineLoaded ? 'No insulin logged' : 'Loading insulin log…'}</span>
+            <span className="onBoardLatestLabel">LAST LOGGED INSULIN</span>
+            <div className="onBoardLoggedValue" aria-live="polite">{insulinEntries.length ? `${insulinEntries[0].value.toFixed(1)} u` : '—'}</div>
+            <span className="onBoardLatest">{insulinEntries.length ? `Logged ${loggedDate(insulinEntries[0])}` : timelineLoaded ? 'No insulin logged' : 'Loading log…'}</span>
+            <span className="onBoardPending">Active IOB: — <span>not calculated</span></span>
           </div>
-          <div className="onBoardMetric" title="Carbs on board is not calculated until a validated carbohydrate-absorption model has been configured.">
+          <div className="onBoardMetric" title="The large figure is the last logged carbohydrate amount, NOT carbohydrate still being absorbed. COB calculation is not yet validated.">
             <span className="onBoardLabel">COB <span className="onBoardFullLabel">· Carbs on board</span></span>
-            <div className="onBoardValue">— <span>grams active</span></div>
-            <span className="onBoardHint">Not calculated yet</span>
-            <span className="onBoardLatest" aria-live="polite">{foodEntries.length ? `Last logged: ${Math.round(foodEntries[0].value * 10)} g · ${loggedDate(foodEntries[0])}` : timelineLoaded ? 'No food logged' : 'Loading food log…'}</span>
+            <span className="onBoardLatestLabel">LAST LOGGED CARBS</span>
+            <div className="onBoardLoggedValue" aria-live="polite">{foodEntries.length ? `${Math.round(foodEntries[0].value * 10)} g` : '—'}</div>
+            <span className="onBoardLatest">{foodEntries.length ? `Logged ${loggedDate(foodEntries[0])}` : timelineLoaded ? 'No food logged' : 'Loading log…'}</span>
+            <span className="onBoardPending">Active COB: — <span>not calculated</span></span>
           </div>
         </div>
       </section>
