@@ -42,6 +42,22 @@ function loggedDate(item: TimelineItem) {
   return `${date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+function loggedClock(item: TimelineItem) {
+  const value = item.occurredAt || item.createdAt;
+  const time = value ? new Date(value) : null;
+  return time && Number.isFinite(time.getTime())
+    ? time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : item.time;
+}
+
+function loggedDay(item: TimelineItem) {
+  const value = item.occurredAt || item.createdAt;
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : 'Date unavailable';
+}
+
 function insulinElapsed(item: TimelineItem, now: number) {
   const timestamp = item.occurredAt || item.createdAt;
   if (!timestamp) return 'Injection time not available';
@@ -85,7 +101,7 @@ function isTimelineItem(value: unknown): value is TimelineItem {
     typeof item.title === 'string';
 }
 
-function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }) {
+function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmReading[]; hours: number; events: TimelineItem[]; onSelectEvent: (item: TimelineItem) => void }) {
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const [chartWidth, setChartWidth] = useState(1000);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -114,15 +130,20 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
   const width = chartWidth;
   const validReadings = readings.filter((r) => Number.isFinite(new Date(r.timestamp).getTime()));
   const latestMs = validReadings.length ? new Date(validReadings[validReadings.length - 1].timestamp).getTime() : Date.now();
-  const cutoff = latestMs - hours * 60 * 60 * 1000;
-  const filtered = validReadings.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+  const endMs = Math.max(Date.now(), latestMs);
+  const cutoff = endMs - hours * 60 * 60 * 1000;
+  const filtered = validReadings.filter((r) => Date.parse(r.timestamp) >= cutoff && Date.parse(r.timestamp) <= endMs);
   const chartReadings = filtered.length > 1 ? filtered : [];
   const values = chartReadings.map((r) => r.glucose);
   const min = Math.min(50, ...values) - 5;
   const max = Math.max(220, ...values) + 10;
-  const step = width / Math.max(1, values.length - 1);
+  const xForTime = (timestamp: string) => ((Date.parse(timestamp) - cutoff) / (endMs - cutoff)) * width;
   const y = (v: number) => height - ((v - min) / (max - min)) * height;
-  const points = values.map((v, i) => `${i * step},${y(v)}`).join(' ');
+  const points = chartReadings.map((r) => `${xForTime(r.timestamp)},${y(r.glucose)}`).join(' ');
+  const chartEvents = events.filter((event) => {
+    const time = Date.parse(event.occurredAt || event.createdAt || '');
+    return Number.isFinite(time) && time >= cutoff && time <= endMs;
+  }).sort((a, b) => Date.parse(a.occurredAt || a.createdAt || '') - Date.parse(b.occurredAt || b.createdAt || '')).slice(-8);
   const highBoundary = Math.max(0, Math.min(100, (y(180) / height) * 100));
   const lowBoundary = Math.max(0, Math.min(100, (y(70) / height) * 100));
   const hoverReading = hoveredIndex != null && chartReadings.length ? chartReadings[hoveredIndex] : null;
@@ -133,8 +154,12 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
   function updateHover(clientX: number, element: SVGSVGElement) {
     if (!chartReadings.length) return;
     const rect = element.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    setHoveredIndex(Math.round(ratio * (chartReadings.length - 1)));
+    const position = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * width;
+    let nearest = 0;
+    for (let i = 1; i < chartReadings.length; i++) {
+      if (Math.abs(xForTime(chartReadings[i].timestamp) - position) < Math.abs(xForTime(chartReadings[nearest].timestamp) - position)) nearest = i;
+    }
+    setHoveredIndex(nearest);
   }
 
   if (!chartReadings.length) return <div className="chartInteractive" ref={chartWrapRef} style={{ minHeight: 220, display: 'grid', placeItems: 'center', color: '#64748b' }}>No live CGM readings available for this period. No simulated values are shown.</div>;
@@ -156,7 +181,7 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
         height={height}
         style={{ display: 'block', width: '100%', height: `${height}px` }}
         role="img"
-        aria-label={`${hours} hour live glucose trend`}
+        aria-label={`${hours} hour live glucose trend with logged insulin and food markers`}
         onPointerMove={(e) => updateHover(e.clientX, e.currentTarget)}
         onPointerDown={(e) => updateHover(e.clientX, e.currentTarget)}
         onPointerLeave={() => setHoveredIndex(null)}
@@ -176,13 +201,34 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
         <rect x="0" y={y(70)} width={width} height={Math.max(0, height - y(70))} fill="rgba(59,130,246,.07)" />
         <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
         <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
+        {chartEvents.map((event) => {
+          const x = xForTime(event.occurredAt || event.createdAt || '');
+          return <line key={`line-${event.id}`} x1={x} x2={x} y1="8" y2={height} stroke={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} strokeWidth="2.5" strokeDasharray="6 5" opacity=".78" />;
+        })}
         <polyline points={points} fill="none" stroke="url(#glucoseRangeGradient)" className="glucoseLine" />
-        {values.map((v, i) => <circle key={i} cx={i * step} cy={y(v)} r="4" fill="#fff" stroke={glucoseColour(v)} strokeWidth="3" />)}
+        {chartReadings.map((r, i) => <circle key={i} cx={xForTime(r.timestamp)} cy={y(r.glucose)} r="4" fill="#fff" stroke={glucoseColour(r.glucose)} strokeWidth="3" />)}
+        {chartEvents.map((event, i) => {
+          const x = Math.max(17, Math.min(width - 17, xForTime(event.occurredAt || event.createdAt || '')));
+          const top = i % 2 === 0 ? 22 : 55;
+          return <g key={event.id} pointerEvents="none">
+            <title>{`${event.kind === 'insulin' ? 'Insulin' : 'Food'}: ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} g carbs`} at ${loggedClock(event)} on ${loggedDay(event)}`}</title>
+            <circle cx={x} cy={top} r="15" fill={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} stroke="#fff" strokeWidth="3" />
+            <text x={x} y={top + 5} textAnchor="middle" fontSize="15" fontWeight="900" fill="#fff">{event.kind === 'insulin' ? 'I' : 'F'}</text>
+          </g>;
+        })}
         {hoveredIndex != null && chartReadings.length > 0 && <>
-          <line x1={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} x2={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} y1="0" y2={height} className="hoverGuide" />
-          <circle cx={(hoveredIndex / Math.max(1, chartReadings.length - 1)) * width} cy={y(chartReadings[hoveredIndex].glucose)} r="7" fill="#fff" stroke={glucoseColour(chartReadings[hoveredIndex].glucose)} strokeWidth="4" />
+          <line x1={xForTime(chartReadings[hoveredIndex].timestamp)} x2={xForTime(chartReadings[hoveredIndex].timestamp)} y1="0" y2={height} className="hoverGuide" />
+          <circle cx={xForTime(chartReadings[hoveredIndex].timestamp)} cy={y(chartReadings[hoveredIndex].glucose)} r="7" fill="#fff" stroke={glucoseColour(chartReadings[hoveredIndex].glucose)} strokeWidth="4" />
         </>}
       </svg>
+      {chartEvents.length > 0 && <div className="chartEventStrip" aria-label="Insulin and food entries shown on the glucose graph">
+        {chartEvents.map((event) => <button type="button" key={event.id} className={`chartEventChip ${event.kind}`} onClick={() => onSelectEvent(event)} aria-label={`${event.kind === 'insulin' ? 'Insulin' : 'Food'} at ${loggedClock(event)}, ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} grams carbohydrates`}. View entry`}>
+          <span aria-hidden="true">{event.kind === 'insulin' ? '💉' : '🍴'}</span>
+          <strong>{loggedClock(event)}</strong>
+          <span>{event.kind === 'insulin' ? `${event.value.toFixed(1)} u` : `${Math.round(event.value * 10)} g`}</span>
+        </button>)}
+      </div>}
+      {events.length > 0 && chartEvents.length === 0 && <p className="chartEventNotice">No food or insulin entries in this {hours}-hour view. Choose a longer range to see older entries.</p>}
     </div>
   );
 }
@@ -484,20 +530,24 @@ export default function Dashboard() {
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
         <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
         <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
-        <div className="onBoardSummary" aria-label="Latest logged insulin and carbohydrate amounts; IOB and COB not calculated">
-          <div className="onBoardMetric" title="The large figure is the last logged dose, NOT insulin still active. IOB needs clinician-confirmed insulin-action settings.">
-            <span className="onBoardLabel">IOB <span className="onBoardFullLabel">· Insulin on board</span></span>
-            <span className="onBoardLatestLabel">LAST LOGGED INSULIN</span>
+        <div className="onBoardSummary" aria-label="Most recently logged insulin and food; not active insulin or carbs">
+          <div className="onBoardMetric" aria-label="Last insulin log, not insulin on board">
+            <span className="onBoardLabel">💉 LAST INSULIN</span>
             <div className="onBoardLoggedValue" aria-live="polite">{insulinEntries.length ? `${insulinEntries[0].value.toFixed(1)} u` : '—'}</div>
-            <span className="onBoardLatest">{insulinEntries.length ? `Logged ${loggedDate(insulinEntries[0])}` : timelineLoaded ? 'No insulin logged' : 'Loading log…'}</span>
-            <span className="onBoardPending">Active IOB: — <span>not calculated</span></span>
+            {insulinEntries.length ? <div className="onBoardTimeBlock">
+              <strong className="onBoardEventTime">{loggedClock(insulinEntries[0])}</strong>
+              <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>
+            </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
+            <span className="onBoardPending">IOB: — <span>not calculated</span></span>
           </div>
-          <div className="onBoardMetric" title="The large figure is the last logged carbohydrate amount, NOT carbohydrate still being absorbed. COB calculation is not yet validated.">
-            <span className="onBoardLabel">COB <span className="onBoardFullLabel">· Carbs on board</span></span>
-            <span className="onBoardLatestLabel">LAST LOGGED CARBS</span>
+          <div className="onBoardMetric" aria-label="Last food log, not carbs on board">
+            <span className="onBoardLabel">🍴 LAST FOOD</span>
             <div className="onBoardLoggedValue" aria-live="polite">{foodEntries.length ? `${Math.round(foodEntries[0].value * 10)} g` : '—'}</div>
-            <span className="onBoardLatest">{foodEntries.length ? `Logged ${loggedDate(foodEntries[0])}` : timelineLoaded ? 'No food logged' : 'Loading log…'}</span>
-            <span className="onBoardPending">Active COB: — <span>not calculated</span></span>
+            {foodEntries.length ? <div className="onBoardTimeBlock">
+              <strong className="onBoardEventTime">{loggedClock(foodEntries[0])}</strong>
+              <span className="onBoardEventDate">{loggedDay(foodEntries[0])}</span>
+            </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No food logged' : 'Loading…'}</span>}
+            <span className="onBoardPending">COB: — <span>not calculated</span></span>
           </div>
         </div>
       </section>
@@ -508,7 +558,8 @@ export default function Dashboard() {
           {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
         </div>
         <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
-        <CgmChart readings={readings} hours={chartHours} />
+        <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
+        <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
         <div className="timeAxis"><span>{chartHours} HOURS AGO</span><span>NOW</span></div>
       </section>
 
@@ -543,7 +594,7 @@ export default function Dashboard() {
 
       <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button></nav>
 
-      {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} disabled={savingLog} onClick={() => { void deleteEntry(selectedEntry); }}>🗑️ DELETE ENTRY</button></section></div>}
+      {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{loggedDate(selectedEntry)} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} disabled={savingLog} onClick={() => { void deleteEntry(selectedEntry); }}>🗑️ DELETE ENTRY</button></section></div>}
 
       {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton" disabled title="Coming later">📷 Photo estimate (coming later)</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
 
