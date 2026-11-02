@@ -263,3 +263,23 @@ export async function migrateLocalEntries(): Promise<ManualEntry[]> {
   cacheEntries(entries);
   return entries;
 }
+
+export type SharedInsulinSettings = Record<string, string>;
+export async function fetchInsulinSettings(): Promise<{ values: SharedInsulinSettings; updatedAt: string } | null> {
+  const rows = await authorized('/rest/v1/insulin_settings?select=settings,updated_at&patient_id=eq.jazz&limit=1');
+  if (!Array.isArray(rows)) throw new Error('Could not load shared insulin settings.');
+  if (!rows.length) return null;
+  const row = rows[0];
+  if (!row.settings || typeof row.settings !== 'object' || Array.isArray(row.settings)) throw new Error('Invalid shared insulin settings.');
+  return { values: row.settings as SharedInsulinSettings, updatedAt: String(row.updated_at) };
+}
+
+export async function saveInsulinSettings(values: SharedInsulinSettings): Promise<{ values: SharedInsulinSettings; updatedAt: string }> {
+  const result = await authorized('/rest/v1/insulin_settings?on_conflict=patient_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({ patient_id: 'jazz', settings: values, updated_at: new Date().toISOString() }),
+  });
+  if (!Array.isArray(result) || result.length !== 1 || !result[0].updated_at) throw new Error('Database did not confirm the saved settings.');
+  return { values: result[0].settings as SharedInsulinSettings, updatedAt: String(result[0].updated_at) };
+}
