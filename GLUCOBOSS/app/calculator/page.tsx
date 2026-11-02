@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fetchInsulinSettings, saveInsulinSettings, verifyFamilyMember } from '../../lib/glucoboss-cloud';
+import { fetchInsulinSettings, getFamilyRole, saveInsulinSettings } from '../../lib/glucoboss-cloud';
 
 type MealKey = 'breakfast' | 'lunch' | 'dinner';
 type RatioKey = `${MealKey}Units` | `${MealKey}Grams`;
@@ -40,15 +40,17 @@ export default function CalculatorSetupPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const member = await verifyFamilyMember();
-        if (!member) throw new Error('Please sign in as an authorised family member from the dashboard.');
+        const role = await getFamilyRole();
+        if (!role) throw new Error('Please sign in as an authorised family member from the dashboard.');
         const remote = await fetchInsulinSettings();
         if (cancelled) return;
         setCloudReady(true);
+        setIsAdmin(role === 'admin');
         if (remote) {
           const restored = { ...initialValues };
           for (const key of Object.keys(initialValues) as SettingKey[]) {
@@ -59,7 +61,7 @@ export default function CalculatorSetupPage() {
           setSaveStatus('Settings loaded from the shared family database.');
         } else {
           const raw = window.localStorage.getItem(STORAGE_KEY);
-          if (raw) {
+          if (raw && role === 'admin') {
             const stored = JSON.parse(raw);
             if (stored?.values && typeof stored.values === 'object') {
               const restored = { ...initialValues };
@@ -84,7 +86,7 @@ export default function CalculatorSetupPage() {
   }, []);
   async function saveSettings() {
     if (loading || saving) return;
-    if (!cloudReady) {
+    if (!cloudReady || !isAdmin) {
       setSaveStatus('Not connected to the family database. Please sign in from the dashboard and reopen this page.');
       return;
     }
@@ -119,6 +121,7 @@ export default function CalculatorSetupPage() {
     } finally { setSaving(false); }
   }
   const update = (key: SettingKey, value: string) => {
+    if (!isAdmin) return;
     setValues((previous) => ({ ...previous, [key]: value }));
     setCopyStatus('');
     setSaveStatus('Unsaved changes');
@@ -164,6 +167,8 @@ export default function CalculatorSetupPage() {
         <p>Let's prepare the settings from Jazz's diabetes care plan before we activate any calculations. Nothing entered here is used to recommend a dose.</p>
       </section>
 
+      {cloudReady && !isAdmin && <p role="status" style={{ padding: 14, fontWeight: 700 }}>Read-only family access. Only the administrator can change prescribed insulin settings.</p>}
+      <fieldset disabled={!isAdmin || loading} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <section className="calcSection">
         <div className="calcSectionHead"><span className="calcNumber">1</span><div><h2>Insulin-to-carb ratios</h2><p>Enter <strong>both sides</strong> of the prescribed ratio: insulin units and grams of carbohydrate. For example, 0.5 units : 10 g. Leave unknown ratios blank.</p></div></div>
         <div className="calcFields">
@@ -218,6 +223,7 @@ export default function CalculatorSetupPage() {
         <p className="calcRatioHelp">Lantus is long-acting basal insulin, separate from meal and correction doses. This setting does not calculate, recommend, adjust, or record an injection. Follow Jazz&apos;s prescribed plan.</p>
       </section>
 
+      </fieldset>
       <section className="calcSection calcPreview">
         <div className="calcSectionHead"><span className="calcNumber">4</span><div><h2>Estimator design</h2><p>Planned calculation stages — no active dose output yet.</p></div></div>
         <ol className="calcSteps">
@@ -233,7 +239,7 @@ export default function CalculatorSetupPage() {
       <section className="calcSection calcReview">
         <h2>Share settings for review</h2>
         <p>Entered {enteredCount} of 10 settings ({completeRatios} of 3 complete meal ratios). <strong>Save to the shared family database</strong> so signed-in devices see the same settings.</p>
-        <button type="button" onClick={saveSettings} disabled={loading || saving || !cloudReady} className="calcCopy">{saving ? 'Saving…' : loading ? 'Loading settings…' : dirty ? 'Save changes to cloud' : 'Save settings to cloud'}</button>
+        <button type="button" onClick={saveSettings} disabled={loading || saving || !cloudReady || !isAdmin} className="calcCopy">{saving ? 'Saving…' : loading ? 'Loading settings…' : dirty ? 'Save changes to cloud' : 'Save settings to cloud'}</button>
         <button type="button" onClick={copyForReview} className="calcCopy" style={{ marginLeft: 10, background: '#294958' }}>Copy prescribed settings</button>
         {saveStatus && <p className="calcFeedback" role="status">{saveStatus}</p>}
         {savedAt && <p style={{ marginTop: 9, fontWeight: 700 }}>Last saved: {new Date(savedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
