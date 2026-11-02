@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import GlucoseAlarms from './GlucoseAlarms';
 import { activeEntries, applyServerLogReset, cacheEntries, fetchAllLogRows, getSession, migrateLocalEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
 
 type Modal = 'insulin' | 'food' | null;
@@ -626,6 +627,8 @@ export default function Dashboard() {
         </div>
         <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
       </section>
+
+      <GlucoseAlarms reading={live ? currentValue : undefined} timestamp={latest?.timestamp} connected={live} />
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong style={{ color: live ? glucoseColour(previousValue) : undefined }}>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
