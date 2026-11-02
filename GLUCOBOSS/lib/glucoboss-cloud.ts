@@ -283,3 +283,10 @@ export async function saveInsulinSettings(values: SharedInsulinSettings): Promis
   if (!Array.isArray(result) || result.length !== 1 || !result[0].updated_at) throw new Error('Database did not confirm the saved settings.');
   return { values: result[0].settings as SharedInsulinSettings, updatedAt: String(result[0].updated_at) };
 }
+
+export async function getFamilyRole(): Promise<'admin' | 'parent' | 'child' | 'viewer' | null> {
+  const rows = await authorized('/rest/v1/family_members?select=role&enabled=eq.true&limit=1');
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const role = rows[0]?.role;
+  return role === 'admin' || role === 'parent' || role === 'child' || role === 'viewer' ? role : null;
+}
