@@ -59,6 +59,11 @@ a { color: inherit; }
 .onBoardValue span { font-size: 12px; font-weight: 600; opacity: .85; }
 .onBoardHint { font-size: 11px; opacity: .8; }
 .onBoardLatest { display: block; font-size: 11px; color: #b9f6e8; margin-top: 7px; line-height: 1.35; overflow-wrap: anywhere; }
+.onBoardLatestLabel { font-size: 10px; font-weight: 800; letter-spacing: .055em; opacity: .76; margin-top: 10px; }
+.onBoardLoggedValue { font-size: 32px; font-weight: 900; line-height: 1.15; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.onBoardPending { font-size: 12px; font-weight: 800; border-top: 1px solid rgba(255,255,255,.18); width: 100%; margin-top: 10px; padding-top: 9px; }
+.onBoardPending span { font-size: 10px; font-weight: 500; opacity: .75; }
+
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); }
 .graphCard { margin-top: 18px; padding: 22px; }
@@ -264,6 +269,11 @@ a { color: inherit; }
   .onBoardValue span { font-size: 10px; }
   .onBoardHint { font-size: 10px; }
   .onBoardLatest { font-size: 10px; margin-top: 5px; }
+  .onBoardLatestLabel { font-size: 9px; margin-top: 8px; }
+  .onBoardLoggedValue { font-size: 28px; }
+  .onBoardPending { font-size: 11px; margin-top: 8px; padding-top: 7px; }
+  .onBoardPending span { font-size: 9px; }
+
   .graphCard { padding: 16px; }
   .graphCard svg { height: 150px; }
   .metricsGrid { grid-template-columns: 1fr; gap: 12px; }
