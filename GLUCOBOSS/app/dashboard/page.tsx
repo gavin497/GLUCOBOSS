@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { activeEntries, cacheEntries, fetchAllLogRows, getSession, migrateLocalEntries, readCachedEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
+import { activeEntries, applyServerLogReset, cacheEntries, fetchAllLogRows, getSession, migrateLocalEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
 
 type Modal = 'insulin' | 'food' | null;
 type TimelineItem = {
@@ -235,7 +235,7 @@ export default function Dashboard() {
   useEffect(() => {
     let active = true;
     let initialLoadComplete = false;
-    setTimeline(readCachedEntries());
+    setTimeline([]); // Wait for verified cloud state rather than showing potentially reset local records.
     async function initialLoad() {
       syncBusy.current = true;
       try {
@@ -255,6 +255,7 @@ export default function Dashboard() {
       if (!active || !initialLoadComplete || syncBusy.current) return;
       syncBusy.current = true;
       try {
+        await applyServerLogReset();
         const entries = activeEntries(await fetchAllLogRows());
         if (!active) return;
         setTimeline(entries);
