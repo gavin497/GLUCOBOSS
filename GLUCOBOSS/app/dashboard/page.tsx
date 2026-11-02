@@ -35,15 +35,24 @@ function timestampAt(time: string, original?: string) {
   return date.toISOString();
 }
 
+function loggedDate(item: TimelineItem) {
+  const timestamp = item.occurredAt || item.createdAt;
+  const date = timestamp ? new Date(timestamp) : null;
+  if (!date || !Number.isFinite(date.getTime())) return item.time;
+  return `${date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function insulinElapsed(item: TimelineItem, now: number) {
   const timestamp = item.occurredAt || item.createdAt;
   if (!timestamp) return 'Injection time not available';
   const minutes = Math.floor((now - Date.parse(timestamp)) / 60_000);
   if (!Number.isFinite(minutes)) return 'Injection time not available';
-  if (minutes < 0) return 'Injection time is in the future';
+  if (minutes < 0) return `Check injection date/time · ${loggedDate(item)}`;
+  if (minutes >= 24 * 60) return `Historical entry · ${loggedDate(item)}`;
+  if (minutes >= 6 * 60) return `Logged ${Math.floor(minutes / 60)} hr ago · ${loggedDate(item)}`;
   if (minutes < 60) return `${minutes} min since injection · 1-hour mark in ${60 - minutes} min`;
-  if (minutes >= 24 * 60) return `${Math.floor(minutes / 1440)} day(s) since injection`;
-  return `${Math.floor(minutes / 60)} hr ${String(minutes % 60).padStart(2, '0')} min since injection`;
+  if (minutes === 60) return '1 hr since injection · 1-hour mark reached';
+  return `${Math.floor(minutes / 60)} hr ${String(minutes % 60).padStart(2, '0')} min since injection · 1-hour mark passed`;
 }
 
 function trendArrow(trend?: string, delta = 0) {
@@ -489,17 +498,17 @@ export default function Dashboard() {
       <section className="metricsGrid">
         <article className="card metricCard">
           <div className="metricTitle">INSULIN LOG</div>
-          <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u latest</span></div>{insulinEntries.length > 0 && <div style={{ fontSize: 12, color: '#087c70', marginBottom: 10, fontWeight: 700 }}>{insulinElapsed(insulinEntries[0], clockTick)}</div>}
+          <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u last recorded</span></div>{insulinEntries.length > 0 && <div style={{ fontSize: 12, color: '#087c70', marginBottom: 10, fontWeight: 700 }}>{insulinElapsed(insulinEntries[0], clockTick)}</div>}
           <div className="miniRows">
-            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
+            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span title={loggedDate(item)}>{loggedDate(item)}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('insulin')}>💉 LOG INSULIN</button>
         </article>
         <article className="card metricCard">
           <div className="metricTitle">CARB LOG</div>
-          <div className="metricValue">{foodEntries.length ? foodEntries[0].value : '—'} <span>portions latest</span></div>
+          <div className="metricValue">{foodEntries.length ? foodEntries[0].value : '—'} <span>portions last recorded</span></div>
           <div className="miniRows">
-            {foodEntries.length ? foodEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.foodDetails ? `${item.foodDetails} · ${item.value} portion${item.value === 1 ? '' : 's'}` : `${item.value} portion${item.value === 1 ? '' : 's'}`}</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No food logged' : 'Loading log…'}</b></div>}
+            {foodEntries.length ? foodEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span title={loggedDate(item)}>{loggedDate(item)}</span><b>{item.foodDetails ? `${item.foodDetails} · ${item.value} portion${item.value === 1 ? '' : 's'}` : `${item.value} portion${item.value === 1 ? '' : 's'}`}</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No food logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('food')}>🍴 LOG FOOD</button>
         </article>
@@ -510,7 +519,7 @@ export default function Dashboard() {
       <section className="card timelineCard">
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
         <div className="timeline">
-          {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
+          {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime" title={loggedDate(item)}>{loggedDate(item)}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
           {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
         </div>
       </section>
