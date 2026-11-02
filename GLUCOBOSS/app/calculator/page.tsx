@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type MealKey = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 type RatioKey = `${MealKey}Units` | `${MealKey}Grams`;
@@ -30,12 +30,57 @@ function positiveNumber(value: string) {
   return value.trim() !== '' && Number.isFinite(n) && n > 0;
 }
 
+const STORAGE_KEY = 'glucoboss-prescribed-ratio-settings-v1';
+
 export default function CalculatorSetupPage() {
   const [values, setValues] = useState<Record<SettingKey, string>>(initialValues);
   const [copyStatus, setCopyStatus] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [savedAt, setSavedAt] = useState('');
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw);
+      if (!stored || typeof stored.values !== 'object') return;
+      const restored = { ...initialValues };
+      for (const key of Object.keys(initialValues) as SettingKey[]) {
+        if (typeof stored.values[key] === 'string') restored[key] = stored.values[key];
+      }
+      setValues(restored);
+      if (typeof stored.savedAt === 'string') setSavedAt(stored.savedAt);
+      setSaveStatus('Saved settings restored from this device.');
+    } catch { setSaveStatus('Unable to read previously saved settings.'); }
+  }, []);
+  function saveSettings() {
+    for (const field of ratioFields) {
+      const units = values[`${field.key}Units`];
+      const grams = values[`${field.key}Grams`];
+      if ((units.trim() || grams.trim()) && !(positiveNumber(units) && positiveNumber(grams))) {
+        setSaveStatus(`Cannot save: ${field.label} needs both positive units and grams.`);
+        return;
+      }
+    }
+    for (const field of correctionFields) {
+      if (values[field.key].trim() && !positiveNumber(values[field.key])) {
+        setSaveStatus(`Cannot save: ${field.label} must be a positive number.`);
+        return;
+      }
+    }
+    try {
+      const now = new Date().toISOString();
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ values, savedAt: now }));
+      setSavedAt(now);
+      setDirty(false);
+      setSaveStatus('Saved on this device. Your settings will be restored when you reopen this page here.');
+    } catch { setSaveStatus('Save failed. Device storage may be disabled or full.'); }
+  }
   const update = (key: SettingKey, value: string) => {
     setValues((previous) => ({ ...previous, [key]: value }));
     setCopyStatus('');
+    setSaveStatus('Unsaved changes');
+    setDirty(true);
   };
   async function copyForReview() {
     const rows = [
@@ -128,8 +173,11 @@ export default function CalculatorSetupPage() {
 
       <section className="calcSection calcReview">
         <h2>Share settings for review</h2>
-        <p>Entered {enteredCount} of 9 settings ({completeRatios} of 4 complete meal ratios). These inputs are temporary: they are <strong>not saved, synced or submitted</strong> to GLUCOBOSS.</p>
-        <button type="button" onClick={copyForReview} className="calcCopy">Copy prescribed settings</button>
+        <p>Entered {enteredCount} of 9 settings ({completeRatios} of 4 complete meal ratios). Save to keep them on this phone. <strong>Settings are stored only on this device, not synced to other family members.</strong></p>
+        <button type="button" onClick={saveSettings} className="calcCopy">{dirty ? 'Save changes' : 'Save settings'}</button>
+        <button type="button" onClick={copyForReview} className="calcCopy" style={{ marginLeft: 10, background: '#294958' }}>Copy prescribed settings</button>
+        {saveStatus && <p className="calcFeedback" role="status">{saveStatus}</p>}
+        {savedAt && <p style={{ marginTop: 9, fontWeight: 700 }}>Last saved: {new Date(savedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
         {copyStatus && <p className="calcFeedback" role="status">{copyStatus}</p>}
       </section>
 
