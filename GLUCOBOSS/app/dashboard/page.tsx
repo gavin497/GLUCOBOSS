@@ -534,7 +534,7 @@ export default function Dashboard() {
 
   return (
     <main className="pageShell">
-      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><a href="/calculator" style={{ color: '#087c70', fontWeight: 850, fontSize: 13 }}>🧮 Dose setup</a><a href="/recipes" style={{ color: '#087c70', fontWeight: 800, fontSize: 13 }}>🍽️ Recipes</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
+      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><a href="/recipes" style={{ color: '#087c70', fontWeight: 800, fontSize: 13 }}>🍽️ Recipe Guide</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
@@ -582,6 +582,7 @@ export default function Dashboard() {
             {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span title={loggedDate(item)}>{loggedDate(item)}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('insulin')}>💉 LOG INSULIN</button>
+          <a href="/calculator" style={{ display: 'block', marginTop: 12, fontSize: 16, fontWeight: 850, color: '#087c70', textDecoration: 'underline' }}>🧮 Carb ratio &amp; dose estimator setup</a>
         </article>
         <article className="card metricCard">
           <div className="metricTitle">CARB LOG</div>
