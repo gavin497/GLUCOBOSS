@@ -8,12 +8,13 @@ const LOW_LIMIT = 70;
 const HIGH_LIMIT = 180;
 const SNOOZE_MINUTES = [15, 30, 45, 60, 90, 120] as const;
 const STORAGE_KEY = 'glucoboss:device-alarms:v1';
+// These tones and spoken phrases match the in-chat alarm previews.
 type AlarmState = { enabled: boolean; lowUntil: number; highUntil: number; lowLast: number; highLast: number };
 const INITIAL: AlarmState = { enabled: false, lowUntil: 0, highUntil: 0, lowLast: 0, highLast: 0 };
 
 function alarmPhrase(kind: AlarmKind) {
   return kind === 'low'
-    ? 'Boo doo, boo doo, boo doo, boo doo, boo doo, boo doo. Low! Low! Low!'
+    ? 'Boo doo! Boo doo! Boo doo! Boo doo! Boo doo! Boo doo! Low! Low! Low!'
     : 'Hibbidy high! Hibbidy high! Hibbidy, hibbidy high! High! Woof!';
 }
 function soundAlarm(kind: AlarmKind) {
@@ -23,18 +24,18 @@ function soundAlarm(kind: AlarmKind) {
     if (AudioContextType) {
       const ctx: AudioContext = new AudioContextType();
       void ctx.resume();
-      const start = ctx.currentTime + 0.02;
+      const start = ctx.currentTime + 0.04;
       for (let i = 0; i < 8; i++) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = kind === 'low' ? 'square' : 'sine';
-        osc.frequency.value = kind === 'low' ? (i % 2 ? 490 : 380) : (i % 2 ? 920 : 720);
-        const at = start + i * (kind === 'low' ? 0.22 : 0.16);
+        osc.frequency.value = (kind === 'low' ? 380 : 700) * (i % 2 ? 1.28 : 1);
+        const at = start + i * (kind === 'low' ? 0.23 : 0.17);
         gain.gain.setValueAtTime(0.0001, at);
         gain.gain.exponentialRampToValueAtTime(0.10, at + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.15);
         osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(at); osc.stop(at + 0.18);
+        osc.start(at); osc.stop(at + 0.17);
       }
       window.setTimeout(() => { void ctx.close(); }, 3000);
     }
