@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { activeEntries, cacheEntries, fetchAllLogRows, getSession, migrateLocalEntries, readCachedEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
 
 type Modal = 'insulin' | 'food' | null;
 type TimelineItem = {
@@ -12,6 +13,7 @@ type TimelineItem = {
   title: string;
   detail: string;
   createdAt?: string;
+  occurredAt?: string;
   foodDetails?: string;
 };
 type CgmReading = { glucose: number; timestamp: string; trend?: string };
@@ -19,13 +21,29 @@ type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; 
 
 const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
 const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
-const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
 const chartRanges = [2, 4, 6, 12, 24];
-const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
 
 function currentTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function timestampAt(time: string, original?: string) {
+  const date = original && Number.isFinite(Date.parse(original)) ? new Date(original) : new Date();
+  const [hours, minutes] = time.split(':').map(Number);
+  date.setHours(hours, minutes, 0, 0);
+  return date.toISOString();
+}
+
+function insulinElapsed(item: TimelineItem, now: number) {
+  const timestamp = item.occurredAt || item.createdAt;
+  if (!timestamp) return 'Injection time not available';
+  const minutes = Math.floor((now - Date.parse(timestamp)) / 60_000);
+  if (!Number.isFinite(minutes)) return 'Injection time not available';
+  if (minutes < 0) return 'Injection time is in the future';
+  if (minutes < 60) return `${minutes} min since injection · 1-hour mark in ${60 - minutes} min`;
+  if (minutes >= 24 * 60) return `${Math.floor(minutes / 1440)} day(s) since injection`;
+  return `${Math.floor(minutes / 60)} hr ${String(minutes % 60).padStart(2, '0')} min since injection`;
 }
 
 function trendArrow(trend?: string, delta = 0) {
@@ -90,7 +108,7 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
   const cutoff = latestMs - hours * 60 * 60 * 1000;
   const filtered = validReadings.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
   const chartReadings = filtered.length > 1 ? filtered : [];
-  const values = chartReadings.length ? chartReadings.map((r) => r.glucose) : fallbackPoints;
+  const values = chartReadings.map((r) => r.glucose);
   const min = Math.min(50, ...values) - 5;
   const max = Math.max(220, ...values) + 10;
   const step = width / Math.max(1, values.length - 1);
@@ -109,6 +127,8 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     setHoveredIndex(Math.round(ratio * (chartReadings.length - 1)));
   }
+
+  if (!chartReadings.length) return <div className="chartInteractive" ref={chartWrapRef} style={{ minHeight: 220, display: 'grid', placeItems: 'center', color: '#64748b' }}>No live CGM readings available for this period. No simulated values are shown.</div>;
 
   return (
     <div className="chartInteractive" ref={chartWrapRef}>
@@ -170,13 +190,19 @@ export default function Dashboard() {
   const [cgmLoading, setCgmLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [timelineLoaded, setTimelineLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Connecting to private family log…');
+  const [savingLog, setSavingLog] = useState(false);
+  const syncBusy = useRef(false);
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
   const [voiceMessage, setVoiceMessage] = useState('');
 
   async function loadCgm() {
     try {
-      const response = await fetch('/api/cgm', { cache: 'no-store' });
+      const session = await getSession();
+      if (!session) throw new Error('Please sign in to view glucose readings.');
+      const response = await fetch('/api/cgm', { cache: 'no-store', headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!response.ok) throw new Error(`CGM request failed (${response.status})`);
       const data = (await response.json()) as CgmResponse;
       setCgm(data);
       setClockTick(Date.now());
@@ -198,41 +224,50 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(LOG_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
-      }
-    } catch {
-      // Ignore malformed or unavailable browser storage and keep the log usable.
-    } finally {
-      setTimelineLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!timelineLoaded) return;
-    try {
-      window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(timeline));
-    } catch {
-      // If browser storage is unavailable, the current session still works normally.
-    }
-  }, [timeline, timelineLoaded]);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== LOG_STORAGE_KEY || !event.newValue) return;
+    let active = true;
+    let initialLoadComplete = false;
+    setTimeline(readCachedEntries());
+    async function initialLoad() {
+      syncBusy.current = true;
       try {
-        const parsed = JSON.parse(event.newValue);
-        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
-      } catch {
-        // Ignore invalid storage events.
+        const entries = await migrateLocalEntries();
+        if (!active) return;
+        setTimeline(entries);
+        setSyncStatus('Synced securely across devices');
+      } catch (error) {
+        if (active) setSyncStatus(`Cloud sync unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
+      } finally {
+        syncBusy.current = false;
+        initialLoadComplete = true;
+        if (active) setTimelineLoaded(true);
       }
+    }
+    async function refresh() {
+      if (!active || !initialLoadComplete || syncBusy.current) return;
+      syncBusy.current = true;
+      try {
+        const entries = activeEntries(await fetchAllLogRows());
+        if (!active) return;
+        setTimeline(entries);
+        setSyncStatus('Synced securely across devices');
+      } catch (error) {
+        if (active) setSyncStatus(`Cloud sync unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
+      } finally { syncBusy.current = false; }
+    }
+    void initialLoad();
+    const interval = window.setInterval(() => { void refresh(); }, 30_000);
+    const onFocus = () => { void refresh(); };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
     };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
   }, []);
+
+  useEffect(() => {
+    if (timelineLoaded) cacheEntries(timeline);
+  }, [timeline, timelineLoaded]);
 
   const readings = cgm?.readings ?? [];
   const latest = cgm?.latest;
@@ -302,11 +337,40 @@ export default function Dashboard() {
     }
   }
 
-  function deleteEntry(item: TimelineItem) {
+  async function persistEntry(entry: TimelineItem) {
+    setSavingLog(true);
+    syncBusy.current = true;
+    try {
+      const saved = await saveEntry(entry);
+      setTimeline(items => sortEntries([saved, ...items.filter(item => item.id !== saved.id)]));
+      setSyncStatus('Synced securely across devices');
+      closeLogModal();
+    } catch (error) {
+      setSyncStatus(`Cloud save failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      window.alert('The entry was NOT saved. Check your connection and try again.');
+    } finally {
+      setSavingLog(false);
+      syncBusy.current = false;
+    }
+  }
+
+  async function deleteEntry(item: TimelineItem) {
     if (!window.confirm(`Delete this ${item.kind === 'insulin' ? 'insulin' : 'food'} entry?`)) return;
-    setTimeline((items) => items.filter((entry) => entry.id !== item.id));
-    setSelectedEntry(null);
-    if (editingId === item.id) setEditingId(null);
+    setSavingLog(true);
+    syncBusy.current = true;
+    try {
+      await removeEntry(item.id);
+      setTimeline(items => items.filter(entry => entry.id !== item.id));
+      setSelectedEntry(null);
+      if (editingId === item.id) setEditingId(null);
+      setSyncStatus('Synced securely across devices');
+    } catch (error) {
+      setSyncStatus(`Cloud delete failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      window.alert('Could not delete this entry. It has not been removed.');
+    } finally {
+      setSavingLog(false);
+      syncBusy.current = false;
+    }
   }
 
   function closeLogModal() {
@@ -320,60 +384,42 @@ export default function Dashboard() {
   }
 
   function confirmInsulin() {
-    if (selectedInsulin == null || selectedInsulin <= 0 || !selectedTime) return;
-    if (editingId) {
-      setTimeline((items) => items.map((item) => item.id === editingId ? {
-        ...item,
-        value: selectedInsulin,
-        time: selectedTime,
-        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
-        detail: 'Edited entry',
-      } : item));
-    } else {
-      setTimeline((items) => [{
-        id: makeId(),
-        kind: 'insulin',
-        value: selectedInsulin,
-        time: selectedTime,
-        icon: '💉',
-        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
-        detail: 'Manual entry',
-        createdAt: new Date().toISOString(),
-      }, ...items]);
-    }
-    closeLogModal();
+    if (savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime) return;
+    const previous = editingId ? timeline.find(item => item.id === editingId) : undefined;
+    const base = previous?.occurredAt || previous?.createdAt;
+    const entry: TimelineItem = {
+      id: previous?.id || makeId(),
+      kind: 'insulin',
+      value: selectedInsulin,
+      time: selectedTime,
+      icon: '💉',
+      title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
+      detail: previous ? 'Edited entry' : 'Manual entry',
+      createdAt: previous?.createdAt || new Date().toISOString(),
+      occurredAt: timestampAt(selectedTime, base),
+    };
+    void persistEntry(entry);
   }
 
   function confirmFood() {
-    if (selectedCarbs == null || selectedCarbs <= 0 || !selectedTime) return;
-    const grams = Math.round(selectedCarbs * 10);
+    if (savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime) return;
+    const previous = editingId ? timeline.find(item => item.id === editingId) : undefined;
+    const portions = selectedCarbs;
+    const grams = Math.round(portions * 10);
     const description = foodDetails.trim();
-    const title = description || `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`;
-    const detail = `${selectedCarbs} portion${selectedCarbs === 1 ? '' : 's'} · ${grams}g carbohydrate`;
-
-    if (editingId) {
-      setTimeline((items) => items.map((item) => item.id === editingId ? {
-        ...item,
-        value: selectedCarbs,
-        time: selectedTime,
-        foodDetails: description || undefined,
-        title,
-        detail: `${detail} · edited`,
-      } : item));
-    } else {
-      setTimeline((items) => [{
-        id: makeId(),
-        kind: 'food',
-        value: selectedCarbs,
-        time: selectedTime,
-        icon: '🍴',
-        foodDetails: description || undefined,
-        title,
-        detail,
-        createdAt: new Date().toISOString(),
-      }, ...items]);
-    }
-    closeLogModal();
+    const entry: TimelineItem = {
+      id: previous?.id || makeId(),
+      kind: 'food',
+      value: portions,
+      time: selectedTime,
+      icon: '🍴',
+      foodDetails: description || undefined,
+      title: description || `${portions} carb portion${portions === 1 ? '' : 's'}`,
+      detail: `${portions} portion${portions === 1 ? '' : 's'} · ${grams}g carbohydrate${previous ? ' · edited' : ''}`,
+      createdAt: previous?.createdAt || new Date().toISOString(),
+      occurredAt: timestampAt(selectedTime, previous?.occurredAt || previous?.createdAt),
+    };
+    void persistEntry(entry);
   }
 
   function spokenNumber(text: string) {
@@ -422,12 +468,12 @@ export default function Dashboard() {
 
   return (
     <main className="pageShell">
-      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><a className="profileButton" href="/" aria-label="Back to home">G</a></header>
+      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><a href="/recipes" style={{ color: '#087c70', fontWeight: 800, fontSize: 13 }}>🍽️ Recipe Guide</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
 
       <section className="glucoseHero">
-        <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{previousValue}</strong><span className="unit">mg/dL</span></div>
-        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{currentValue}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
-        <div className="changeBadge">{delta > 0 ? '+' : ''}{delta}</div>
+        <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
+        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong>{live ? currentValue : '—'}</strong><span className="trend">{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span></div>
+        <div className="changeBadge">{live ? `${delta > 0 ? '+' : ''}${delta}` : '—'}</div>
       </section>
 
       <section className="card graphCard">
@@ -443,7 +489,7 @@ export default function Dashboard() {
       <section className="metricsGrid">
         <article className="card metricCard">
           <div className="metricTitle">INSULIN LOG</div>
-          <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u latest</span></div>
+          <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u latest</span></div>{insulinEntries.length > 0 && <div style={{ fontSize: 12, color: '#087c70', marginBottom: 10, fontWeight: 700 }}>{insulinElapsed(insulinEntries[0], clockTick)}</div>}
           <div className="miniRows">
             {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
           </div>
@@ -462,18 +508,18 @@ export default function Dashboard() {
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
       <section className="card timelineCard">
-        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · manual entries are saved on this device</p></div></div>
+        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
-          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail} · Tap to edit</span></div></div>)}
+          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
         </div>
       </section>
 
       <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button></nav>
 
-      {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => deleteEntry(selectedEntry)}>🗑️ DELETE ENTRY</button></section></div>}
+      {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} disabled={savingLog} onClick={() => { void deleteEntry(selectedEntry); }}>🗑️ DELETE ENTRY</button></section></div>}
 
-      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton">📷 Estimate from photo</button><button className="confirmButton compactConfirm" disabled={selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton" disabled title="Coming later">📷 Photo estimate (coming later)</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
 
       <style>{`
         .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
