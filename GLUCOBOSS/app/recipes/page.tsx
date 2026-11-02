@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import AuthGate from '../../components/AuthGate';
+import { TimelineItem, importLocalLogsOnce, saveCloudLog, occurredAtFor } from '../../lib/cloud';
 
 type Recipe = {
   id: string;
@@ -12,20 +14,6 @@ type Recipe = {
   ingredients: string[];
   method: string[];
 };
-
-type TimelineItem = {
-  id: string;
-  kind: 'insulin' | 'food';
-  value: number;
-  time: string;
-  icon: string;
-  title: string;
-  detail: string;
-  createdAt?: string;
-  foodDetails?: string;
-};
-
-const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
 
 const recipes: Recipe[] = [
   {
@@ -115,7 +103,7 @@ function currentTime() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export default function RecipesPage() {
+function RecipesInner() {
   const [meal, setMeal] = useState('All');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Recipe | null>(null);
@@ -128,27 +116,22 @@ export default function RecipesPage() {
     return mealMatches && searchMatches;
   }), [meal, search]);
 
-  function logRecipe(recipe: Recipe) {
+  async function logRecipe(recipe: Recipe) {
+    const portions = recipe.carbs / 10;
+    const now = new Date().toISOString();
+    const entry: TimelineItem = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      kind: 'food', value: portions, time: currentTime(), icon: '🍴',
+      foodDetails: recipe.title, title: recipe.title,
+      detail: portions + ' portions · ~' + recipe.carbs + 'g carbohydrate · recipe estimate',
+      createdAt: now, occurredAt: occurredAtFor(currentTime())
+    };
     try {
-      const raw = window.localStorage.getItem(LOG_STORAGE_KEY);
-      const existing = raw ? JSON.parse(raw) : [];
-      const timeline: TimelineItem[] = Array.isArray(existing) ? existing : [];
-      const portions = recipe.carbs / 10;
-      const entry: TimelineItem = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        kind: 'food',
-        value: portions,
-        time: currentTime(),
-        icon: '🍴',
-        foodDetails: recipe.title,
-        title: recipe.title,
-        detail: `${portions} portion${portions === 1 ? '' : 's'} · ~${recipe.carbs}g carbohydrate · recipe estimate`,
-        createdAt: new Date().toISOString(),
-      };
-      window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify([entry, ...timeline]));
-      setMessage(`${recipe.title} added to the carb log as ~${recipe.carbs}g carbohydrate. Verify the actual ingredients and portion before using the carb figure.`);
-    } catch {
-      setMessage('Could not save this recipe to the carb log in this browser.');
+      await importLocalLogsOnce();
+      await saveCloudLog(entry);
+      setMessage(recipe.title + ' added to the shared family carb log as ~' + recipe.carbs + 'g carbohydrate. Verify actual ingredients and portions before treatment decisions.');
+    } catch (error) {
+      setMessage('Cloud log failed: ' + (error instanceof Error ? error.message : 'Please try again.') + '. No meal was saved.');
     }
   }
 
@@ -256,4 +239,8 @@ export default function RecipesPage() {
       `}</style>
     </main>
   );
+}
+
+export default function RecipesPage() {
+  return <AuthGate><RecipesInner /></AuthGate>;
 }
