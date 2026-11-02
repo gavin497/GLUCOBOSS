@@ -1,19 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import AuthGate from '../../components/AuthGate';
+import { TimelineItem, importLocalLogsOnce, fetchCloudLogs, saveCloudLog, deleteCloudLog, occurredAtFor } from '../../lib/cloud';
 
 type Modal = 'insulin' | 'food' | null;
-type TimelineItem = {
-  id: string;
-  kind: 'insulin' | 'food';
-  value: number;
-  time: string;
-  icon: string;
-  title: string;
-  detail: string;
-  createdAt?: string;
-  foodDetails?: string;
-};
 type CgmReading = { glucose: number; timestamp: string; trend?: string };
 type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; previous?: CgmReading | null; error?: string };
 
@@ -21,7 +12,15 @@ const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
 const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const fallbackPoints = [105, 108, 112, 118, 125, 132, 142, 151, 145, 136, 128, 121, 116, 112, 110];
 const chartRanges = [2, 4, 6, 12, 24];
-const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
+function insulinElapsed(item: TimelineItem, now: number) {
+  const timestamp = item.occurredAt || occurredAtFor(item.time, item.createdAt);
+  const elapsed = Math.floor((now - new Date(timestamp).getTime()) / 60000);
+  if (!Number.isFinite(elapsed) || elapsed < 0) return 'Injection time unavailable';
+  if (elapsed >= 24 * 60) return Math.floor(elapsed / 1440) + ' day(s) since injection';
+  const h = Math.floor(elapsed / 60);
+  const m = elapsed % 60;
+  return h ? h + ' hr ' + m + ' min since injection' : m + ' min since injection';
+}
 
 function currentTime() {
   const d = new Date();
@@ -158,7 +157,7 @@ function CgmChart({ readings, hours }: { readings: CgmReading[]; hours: number }
   );
 }
 
-export default function Dashboard() {
+function DashboardInner() {
   const [modal, setModal] = useState<Modal>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<TimelineItem | null>(null);
@@ -173,6 +172,9 @@ export default function Dashboard() {
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
   const [voiceMessage, setVoiceMessage] = useState('');
+  const [logError, setLogError] = useState('');
+  const [savingLog, setSavingLog] = useState(false);
+  const savingRef = useRef(false);
 
   async function loadCgm() {
     try {
@@ -198,40 +200,32 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(LOG_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
-      }
-    } catch {
-      // Ignore malformed or unavailable browser storage and keep the log usable.
-    } finally {
-      setTimelineLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!timelineLoaded) return;
-    try {
-      window.localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(timeline));
-    } catch {
-      // If browser storage is unavailable, the current session still works normally.
-    }
-  }, [timeline, timelineLoaded]);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== LOG_STORAGE_KEY || !event.newValue) return;
+    let active = true;
+    async function sync() {
+      if (savingRef.current) return;
       try {
-        const parsed = JSON.parse(event.newValue);
-        if (Array.isArray(parsed)) setTimeline(parsed.filter(isTimelineItem));
-      } catch {
-        // Ignore invalid storage events.
+        await importLocalLogsOnce();
+        const items = await fetchCloudLogs();
+        if (active && !savingRef.current) {
+          setTimeline(items);
+          setTimelineLoaded(true);
+          setLogError('');
+        }
+      } catch (error) {
+        if (active) {
+          setLogError(error instanceof Error ? error.message : 'Cloud logs are unavailable.');
+          setTimelineLoaded(true);
+        }
       }
+    }
+    sync();
+    const timer = window.setInterval(sync, 20_000);
+    window.addEventListener('focus', sync);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', sync);
     };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   const readings = cgm?.readings ?? [];
@@ -302,11 +296,22 @@ export default function Dashboard() {
     }
   }
 
-  function deleteEntry(item: TimelineItem) {
-    if (!window.confirm(`Delete this ${item.kind === 'insulin' ? 'insulin' : 'food'} entry?`)) return;
-    setTimeline((items) => items.filter((entry) => entry.id !== item.id));
-    setSelectedEntry(null);
-    if (editingId === item.id) setEditingId(null);
+  async function deleteEntry(item: TimelineItem) {
+    if (!window.confirm('Delete this ' + item.kind + ' entry?')) return;
+    savingRef.current = true;
+    setSavingLog(true);
+    setLogError('');
+    try {
+      await deleteCloudLog(item.id);
+      setTimeline(await fetchCloudLogs());
+      setSelectedEntry(null);
+      if (editingId === item.id) setEditingId(null);
+    } catch (error) {
+      setLogError(error instanceof Error ? error.message : 'Could not delete cloud entry.');
+    } finally {
+      savingRef.current = false;
+      setSavingLog(false);
+    }
   }
 
   function closeLogModal() {
@@ -319,61 +324,53 @@ export default function Dashboard() {
     setVoiceMessage('');
   }
 
-  function confirmInsulin() {
-    if (selectedInsulin == null || selectedInsulin <= 0 || !selectedTime) return;
-    if (editingId) {
-      setTimeline((items) => items.map((item) => item.id === editingId ? {
-        ...item,
-        value: selectedInsulin,
-        time: selectedTime,
-        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
-        detail: 'Edited entry',
-      } : item));
-    } else {
-      setTimeline((items) => [{
-        id: makeId(),
-        kind: 'insulin',
-        value: selectedInsulin,
-        time: selectedTime,
-        icon: '💉',
-        title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
-        detail: 'Manual entry',
-        createdAt: new Date().toISOString(),
-      }, ...items]);
+  async function saveEntry(entry: TimelineItem) {
+    savingRef.current = true;
+    setSavingLog(true);
+    setLogError('');
+    try {
+      await saveCloudLog(entry);
+      setTimeline(await fetchCloudLogs());
+      closeLogModal();
+    } catch (error) {
+      setLogError(error instanceof Error ? error.message : 'Could not save cloud entry.');
+    } finally {
+      savingRef.current = false;
+      setSavingLog(false);
     }
-    closeLogModal();
   }
 
-  function confirmFood() {
-    if (selectedCarbs == null || selectedCarbs <= 0 || !selectedTime) return;
+  async function confirmInsulin() {
+    if (savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime) return;
+    const old = editingId ? timeline.find(item => item.id === editingId) : undefined;
+    const now = new Date().toISOString();
+    const entry: TimelineItem = {
+      id: old?.id || makeId(), kind: 'insulin', value: selectedInsulin,
+      time: selectedTime, icon: '💉',
+      title: selectedInsulin.toFixed(1) + ' units rapid insulin',
+      detail: old ? 'Edited entry' : 'Manual entry',
+      createdAt: old?.createdAt || now,
+      occurredAt: occurredAtFor(selectedTime, old?.occurredAt || old?.createdAt)
+    };
+    await saveEntry(entry);
+  }
+
+  async function confirmFood() {
+    if (savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime) return;
+    const old = editingId ? timeline.find(item => item.id === editingId) : undefined;
     const grams = Math.round(selectedCarbs * 10);
     const description = foodDetails.trim();
-    const title = description || `${selectedCarbs} carb portion${selectedCarbs === 1 ? '' : 's'}`;
-    const detail = `${selectedCarbs} portion${selectedCarbs === 1 ? '' : 's'} · ${grams}g carbohydrate`;
-
-    if (editingId) {
-      setTimeline((items) => items.map((item) => item.id === editingId ? {
-        ...item,
-        value: selectedCarbs,
-        time: selectedTime,
-        foodDetails: description || undefined,
-        title,
-        detail: `${detail} · edited`,
-      } : item));
-    } else {
-      setTimeline((items) => [{
-        id: makeId(),
-        kind: 'food',
-        value: selectedCarbs,
-        time: selectedTime,
-        icon: '🍴',
-        foodDetails: description || undefined,
-        title,
-        detail,
-        createdAt: new Date().toISOString(),
-      }, ...items]);
-    }
-    closeLogModal();
+    const title = description || selectedCarbs + ' carb portion' + (selectedCarbs === 1 ? '' : 's');
+    const detail = selectedCarbs + ' portion' + (selectedCarbs === 1 ? '' : 's') + ' · ' + grams + 'g carbohydrate';
+    const now = new Date().toISOString();
+    const entry: TimelineItem = {
+      id: old?.id || makeId(), kind: 'food', value: selectedCarbs,
+      time: selectedTime, icon: '🍴', foodDetails: description || undefined,
+      title, detail: detail + (old ? ' · edited' : ''),
+      createdAt: old?.createdAt || now,
+      occurredAt: occurredAtFor(selectedTime, old?.occurredAt || old?.createdAt)
+    };
+    await saveEntry(entry);
   }
 
   function spokenNumber(text: string) {
@@ -422,7 +419,7 @@ export default function Dashboard() {
 
   return (
     <main className="pageShell">
-      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><a className="profileButton" href="/" aria-label="Back to home">G</a></header>
+      <header className="topbar"><div><div className="brand">GLUCO<span>BOSS</span></div><div className="subtitle">MDI daily management cockpit</div></div><div style={{display:'flex',alignItems:'center',gap:12}}><a href="/recipes" style={{fontWeight:800,color:'#087966',textDecoration:'none'}}>🥗 Recipes</a><a className="profileButton" href="/" aria-label="Back to home">G</a></div></header>
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong>{previousValue}</strong><span className="unit">mg/dL</span></div>
@@ -440,12 +437,13 @@ export default function Dashboard() {
         <div className="timeAxis"><span>{chartHours} HOURS AGO</span><span>NOW</span></div>
       </section>
 
+      {logError && <div role="alert" style={{margin:'12px 0',padding:'12px 16px',borderRadius:12,background:'#fff1f2',color:'#991b1b',fontWeight:700}}>Cloud log: {logError}. Please check your connection and retry. Unsaved changes have not been recorded.</div>}
       <section className="metricsGrid">
         <article className="card metricCard">
           <div className="metricTitle">INSULIN LOG</div>
           <div className="metricValue">{insulinEntries.length ? insulinEntries[0].value.toFixed(1) : '—'} <span>u latest</span></div>
           <div className="miniRows">
-            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
+            {insulinEntries.length ? insulinEntries.slice(0, 3).map((item) => <div key={item.id} role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><span>{item.time}</span><b>{item.value.toFixed(1)}u · {insulinElapsed(item, clockTick)}</b></div>) : <div><span>—</span><b>{timelineLoaded ? 'No insulin logged' : 'Loading log…'}</b></div>}
           </div>
           <button className="actionButton" onClick={() => openNew('insulin')}>💉 LOG INSULIN</button>
         </article>
@@ -462,18 +460,18 @@ export default function Dashboard() {
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
       <section className="card timelineCard">
-        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · manual entries are saved on this device</p></div></div>
+        <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · family cloud logs sync across devices</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
-          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail} · Tap to edit</span></div></div>)}
+          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ' · ' + insulinElapsed(item, clockTick) : ''} · Tap to edit</span></div></div>)}
         </div>
       </section>
 
-      <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button></nav>
+      <nav className="mobileDock" aria-label="Quick actions" style={{gridTemplateColumns:'repeat(4,1fr)'}}><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button><a href="/recipes" style={{display:'grid',placeItems:'center',alignContent:'center',color:'white',fontSize:20,textDecoration:'none'}}>🥗<span>Recipes</span></a></nav>
 
       {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{selectedEntry.time} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => deleteEntry(selectedEntry)}>🗑️ DELETE ENTRY</button></section></div>}
 
-      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton">📷 Estimate from photo</button><button className="confirmButton compactConfirm" disabled={selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton">📷 Estimate from photo</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
 
       <style>{`
         .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
@@ -510,4 +508,8 @@ export default function Dashboard() {
       `}</style>
     </main>
   );
+}
+
+export default function Dashboard() {
+  return <AuthGate><DashboardInner /></AuthGate>;
 }
