@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { fetchInsulinSettings, saveInsulinSettings, verifyFamilyMember } from '../../lib/glucoboss-cloud';
 
 type MealKey = 'breakfast' | 'lunch' | 'dinner';
 type RatioKey = `${MealKey}Units` | `${MealKey}Grams`;
@@ -36,22 +37,57 @@ export default function CalculatorSetupPage() {
   const [saveStatus, setSaveStatus] = useState('');
   const [savedAt, setSavedAt] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const stored = JSON.parse(raw);
-      if (!stored || typeof stored.values !== 'object') return;
-      const restored = { ...initialValues };
-      for (const key of Object.keys(initialValues) as SettingKey[]) {
-        if (typeof stored.values[key] === 'string') restored[key] = stored.values[key];
+    let cancelled = false;
+    (async () => {
+      try {
+        const member = await verifyFamilyMember();
+        if (!member) throw new Error('Please sign in as an authorised family member from the dashboard.');
+        const remote = await fetchInsulinSettings();
+        if (cancelled) return;
+        setCloudReady(true);
+        if (remote) {
+          const restored = { ...initialValues };
+          for (const key of Object.keys(initialValues) as SettingKey[]) {
+            if (typeof remote.values[key] === 'string') restored[key] = remote.values[key];
+          }
+          setValues(restored);
+          setSavedAt(remote.updatedAt);
+          setSaveStatus('Settings loaded from the shared family database.');
+        } else {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const stored = JSON.parse(raw);
+            if (stored?.values && typeof stored.values === 'object') {
+              const restored = { ...initialValues };
+              for (const key of Object.keys(initialValues) as SettingKey[]) {
+                if (typeof stored.values[key] === 'string') restored[key] = stored.values[key];
+              }
+              setValues(restored);
+              setDirty(true);
+              setSaveStatus('Previous settings found on this device. Tap Save Settings to upload them for the family.');
+            }
+          } else {
+            setSaveStatus('No shared settings yet. Enter prescribed settings and tap Save Settings.');
+          }
+        }
+      } catch (error) {
+        if (!cancelled) setSaveStatus(error instanceof Error ? error.message : 'Could not load family settings. Sign in and try again.');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setValues(restored);
-      if (typeof stored.savedAt === 'string') setSavedAt(stored.savedAt);
-      setSaveStatus('Saved settings restored from this device.');
-    } catch { setSaveStatus('Unable to read previously saved settings.'); }
+    })();
+    return () => { cancelled = true; };
   }, []);
-  function saveSettings() {
+  async function saveSettings() {
+    if (loading || saving) return;
+    if (!cloudReady) {
+      setSaveStatus('Not connected to the family database. Please sign in from the dashboard and reopen this page.');
+      return;
+    }
     for (const field of ratioFields) {
       const units = values[`${field.key}Units`];
       const grams = values[`${field.key}Grams`];
@@ -71,12 +107,16 @@ export default function CalculatorSetupPage() {
       return;
     }
     try {
-      const now = new Date().toISOString();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ values, savedAt: now }));
-      setSavedAt(now);
+      setSaving(true);
+      setSaveStatus('Saving to the shared family database…');
+      const saved = await saveInsulinSettings(values);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ values: saved.values, savedAt: saved.updatedAt }));
+      setSavedAt(saved.updatedAt);
       setDirty(false);
-      setSaveStatus('Saved on this device. Your settings will be restored when you reopen this page here.');
-    } catch { setSaveStatus('Save failed. Device storage may be disabled or full.'); }
+      setSaveStatus('Saved to Supabase. Settings are available to signed-in family members on other devices.');
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? `Save failed: ${error.message}` : 'Save failed. No changes were confirmed in the database.');
+    } finally { setSaving(false); }
   }
   const update = (key: SettingKey, value: string) => {
     setValues((previous) => ({ ...previous, [key]: value }));
@@ -192,8 +232,8 @@ export default function CalculatorSetupPage() {
 
       <section className="calcSection calcReview">
         <h2>Share settings for review</h2>
-        <p>Entered {enteredCount} of 10 settings ({completeRatios} of 3 complete meal ratios). Save to keep them on this phone. <strong>Settings are stored only on this device, not synced to other family members.</strong></p>
-        <button type="button" onClick={saveSettings} className="calcCopy">{dirty ? 'Save changes' : 'Save settings'}</button>
+        <p>Entered {enteredCount} of 10 settings ({completeRatios} of 3 complete meal ratios). <strong>Save to the shared family database</strong> so signed-in devices see the same settings.</p>
+        <button type="button" onClick={saveSettings} disabled={loading || saving || !cloudReady} className="calcCopy">{saving ? 'Saving…' : loading ? 'Loading settings…' : dirty ? 'Save changes to cloud' : 'Save settings to cloud'}</button>
         <button type="button" onClick={copyForReview} className="calcCopy" style={{ marginLeft: 10, background: '#294958' }}>Copy prescribed settings</button>
         {saveStatus && <p className="calcFeedback" role="status">{saveStatus}</p>}
         {savedAt && <p style={{ marginTop: 9, fontWeight: 700 }}>Last saved: {new Date(savedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
