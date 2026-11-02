@@ -98,14 +98,14 @@ function trendArrow(trend?: string, _delta = 0) {
 function spokenTrend(trend?: string) {
   const arrow = trendArrow(trend);
   switch (arrow) {
-    case '↑↑': return 'rising very rapidly, by more than 3 milligrams per decilitre per minute';
-    case '↑': return 'rising quickly, around 2 to 3 milligrams per decilitre per minute';
-    case '↗': return 'rising slowly, around 1 to 2 milligrams per decilitre per minute';
-    case '→': return 'relatively steady';
-    case '↘': return 'falling slowly, around 1 to 2 milligrams per decilitre per minute';
-    case '↓': return 'falling quickly, around 2 to 3 milligrams per decilitre per minute';
-    case '↓↓': return 'falling very rapidly, by more than 3 milligrams per decilitre per minute';
-    default: return 'not currently available from the sensor';
+    case '↑↑': return 'double arrow up';
+    case '↑': return 'single arrow up';
+    case '↗': return 'angled arrow up';
+    case '→': return 'straight arrow';
+    case '↘': return 'angled arrow down';
+    case '↓': return 'single arrow down';
+    case '↓↓': return 'double arrow down';
+    default: return 'arrow unavailable';
   }
 }
 
@@ -303,7 +303,7 @@ export default function Dashboard() {
       if (!valid) return 'I do not have a recent glucose reading for Jazz. Please check Dexcom directly.';
       const range = reading! < 70 ? 'low' : reading! > 180 ? 'above range' : 'in range';
       const trendText = spokenTrend(cgm!.latest!.trend);
-      return `Jazz's latest reading is ${reading} milligrams per decilitre, from ${minutes} minute${minutes === 1 ? '' : 's'} ago. He is ${range}. His Dexcom trend is ${trendText}.` + (reading! < 70 ? ' This is low. Follow Jazz\'s prescribed hypo treatment plan and check his Dexcom.' : '');
+      return `Jazz's latest reading is ${reading} milligrams per decilitre, from ${minutes} minute${minutes === 1 ? '' : 's'} ago. He is ${range}. His Dexcom shows ${trendText}.` + (reading! < 70 ? ' This is low. Follow Jazz\'s prescribed hypo treatment plan and check his Dexcom.' : '');
     };
     if (/glucose|sugar|reading|level|how is jazz|how.s jazz|high|low|dropping|rising|trend/.test(q)) return speakAssistant(glucoseReply());
     if (/insulin|injection|dose|units/.test(q)) {
