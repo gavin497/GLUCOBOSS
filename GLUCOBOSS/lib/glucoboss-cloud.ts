@@ -40,6 +40,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
 const SESSION_KEY = 'glucoboss-family-session-v1';
 export const LOG_STORAGE_KEY = 'glucoboss-manual-logs-v1';
+const LOG_RESET_MARKER = 'glucoboss-manual-log-reset-v1';
 let refreshInFlight: Promise<FamilySession | null> | null = null;
 
 function configured() {
@@ -228,9 +229,23 @@ export async function removeEntry(id: string) {
   if (!Array.isArray(result) || result.length !== 1) throw new Error('Cloud did not confirm the deletion.');
 }
 
+export async function applyServerLogReset(): Promise<boolean> {
+  const rows = await authorized('/rest/v1/manual_log_control?select=reset_at&id=eq.1&limit=1');
+  if (!Array.isArray(rows) || rows.length !== 1) throw new Error('Unable to verify family log reset status.');
+  const resetAt = rows[0]?.reset_at as string | null;
+  if (!resetAt || window.localStorage.getItem(LOG_RESET_MARKER) === resetAt) return false;
+  // A global reset invalidates every device's old local cache, including devices that never imported.
+  cacheEntries([]);
+  window.localStorage.setItem(LOG_RESET_MARKER, resetAt);
+  const session = await getSession();
+  if (session) window.localStorage.setItem(`glucoboss-migrated-v1-${session.user?.email || 'family'}`, 'done');
+  return true;
+}
+
 export async function migrateLocalEntries(): Promise<ManualEntry[]> {
   const session = await getSession();
   if (!session) throw new Error('Please sign in.');
+  await applyServerLogReset();
   const marker = `glucoboss-migrated-v1-${session.user?.email || 'family'}`;
   let rows = await fetchAllLogRows();
   if (window.localStorage.getItem(marker) !== 'done') {
