@@ -86,7 +86,7 @@ export async function GET(request: Request) {
   }
   try {
     const requested = new URL(request.url).searchParams.get('report');
-    const count = requested === 'weekly' ? 2300 : requested === 'monthly' ? 9500 : 300;
+    const count = requested === 'daily' ? 2300 : requested === 'weekly' ? 12500 : requested === 'monthly' ? 27000 : 300;
     const { readings, endpoint } = await getNightscoutEntries(count);
     const latest = readings[readings.length - 1];
     const previous = readings.length > 1 ? readings[readings.length - 2] : null;
