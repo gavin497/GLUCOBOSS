@@ -507,6 +507,8 @@ export default function Dashboard() {
     return { label, tir, low, high, coverage, samples: samples.length, insulinUnits: insulin.reduce((total, item) => total + item.value, 0), insulinCount: insulin.length, carbGrams: carbs.reduce((total, item) => total + item.value * 20, 0), isCurrent: index === 0 };
   });
   const bestReport = reportRows.filter(row => row.tir !== null).sort((a, b) => (b.tir ?? 0) - (a.tir ?? 0))[0];
+  const validReportRows = reportRows.filter(row => row.tir !== null);
+  const averageTimeInRange = validReportRows.length ? Math.round(validReportRows.reduce((total, row) => total + (row.tir ?? 0), 0) / validReportRows.length) : null;
   const lastInsulinTime = insulinEntries.length ? Date.parse(insulinEntries[0].occurredAt || insulinEntries[0].createdAt || '') : NaN;
   const oneHourRemaining = Number.isFinite(lastInsulinTime) ? Math.ceil((lastInsulinTime + 3600000 - clockTick) / 60000) : null;
 
@@ -759,6 +761,11 @@ export default function Dashboard() {
         </div>
         <p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>{reportPeriod === 'daily' ? 'Today and the previous six calendar days' : reportPeriod === 'weekly' ? 'This week and five previous Monday–Sunday weeks' : 'This month and the previous two calendar months'} · target 70–180 mg/dL</p>
         {reportLoading ? <p>Loading historical CGM readings…</p> : reportError ? <p role="alert" style={{ color: '#b91c1c' }}>{reportError}</p> : <>
+          <div style={{ padding: '14px 16px', borderRadius: 12, background: '#f1f5f9', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: '#526873', fontWeight: 750 }}>Average time in range · {reportPeriod === 'daily' ? 'last 7 days' : reportPeriod === 'weekly' ? 'last 6 weeks' : 'last 3 months'}</div>
+            <strong style={{ fontSize: 30, color: '#087c70' }}>{averageTimeInRange === null ? '—' : `${averageTimeInRange}%`}</strong>
+            <div style={{ fontSize: 12, color: '#526873' }}>{validReportRows.length} of {reportRows.length} periods with sufficient CGM coverage · equal-weight average of period percentages</div>
+          </div>
           {bestReport && <p style={{ padding: 10, borderRadius: 10, background: '#ecfdf5', color: '#065f46', fontWeight: 800 }}>🏆 Best {reportPeriod === 'daily' ? 'day' : reportPeriod === 'weekly' ? 'week' : 'month'}: {bestReport.label} · {bestReport.tir}% in range</p>}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 570 }}>
