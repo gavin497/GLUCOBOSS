@@ -719,7 +719,7 @@ export default function Dashboard() {
 
       <section className="glucoseHero">
         <div className="readingGroup previous"><span className="eyebrow">PREVIOUS</span><strong style={{ color: live ? glucoseColour(previousValue) : undefined }}>{live ? previousValue : '—'}</strong><span className="unit">mg/dL</span></div>
-        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong style={{ color: live ? glucoseColour(currentValue) : undefined }}>{live ? currentValue : '—'}</strong><span className="trend" style={{ color: live ? glucoseColour(currentValue) : undefined }}>{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? `· ${latestTime}${ageText ? ` · ${ageText}` : ''}` : ''}</span><div className="changeBadge"><span className="changeBadgeLabel">GLUCOSE CHANGE</span><span className="changeBadgeValue">{live ? `${delta > 0 ? '+' : ''}${delta} mg/dL` : '—'}</span></div></div>
+        <div className="readingGroup current"><span className="eyebrow">CURRENT</span><div className="currentLine"><strong style={{ color: live ? glucoseColour(currentValue) : undefined }}>{live ? currentValue : '—'}</strong><span className="trend" style={{ color: live ? glucoseColour(currentValue) : undefined }}>{arrow}</span></div><span className="unit">mg/dL {live && latestTime ? <>· {latestTime}{ageText ? <> · <strong style={{ fontSize: '1.18em', fontWeight: 800 }}>{ageText}</strong></> : null}</> : null}</span><div className="changeBadge"><span className="changeBadgeLabel">GLUCOSE CHANGE</span><span className="changeBadgeValue">{live ? `${delta > 0 ? '+' : ''}${delta} mg/dL` : '—'}</span></div></div>
         <div className="onBoardSummary" aria-label="Last logged insulin and food. Green indicates recent entries only, not measured insulin or carbohydrate activity.">
           <div className="onBoardMetric" aria-label="Last logged rapid insulin">
             <span className="onBoardLabel">💉 INSULIN</span>
@@ -746,7 +746,7 @@ export default function Dashboard() {
       </section>
 
       <section className="card graphCard">
-        <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText}` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
+        <div className="cardHeader"><div><h2>Live glucose</h2>{!live && <p>{cgmLoading ? 'Connecting to CGM…' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p>}</div></div>
         <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
         <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
         <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
