@@ -280,8 +280,7 @@ export default function Dashboard() {
   const [chartHours, setChartHours] = useState(6);
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [reportHistory, setReportHistory] = useState<CgmReading[]>([]);
-  const reportSectionRef = useRef<HTMLElement | null>(null);
-  const [reportsVisible, setReportsVisible] = useState(false);
+  const [activeView, setActiveView] = useState<'home' | 'reports' | 'timeline'>('home');
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [voiceMessage, setVoiceMessage] = useState('');
@@ -429,21 +428,7 @@ export default function Dashboard() {
   }, [timeline, timelineLoaded]);
 
   useEffect(() => {
-    const node = reportSectionRef.current;
-    if (!node) return;
-    if (typeof IntersectionObserver === 'undefined') { setReportsVisible(true); return; }
-    const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) {
-        setReportsVisible(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: '300px' });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!reportsVisible) return;
+    if (activeView !== 'reports') return;
     let cancelled = false;
     async function loadReport() {
       setReportLoading(true);
@@ -462,7 +447,7 @@ export default function Dashboard() {
     }
     void loadReport();
     return () => { cancelled = true; };
-  }, [reportPeriod, reportsVisible]);
+  }, [reportPeriod, activeView]);
 
   useEffect(() => {
     let active = true;
@@ -796,7 +781,10 @@ export default function Dashboard() {
 
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
-      <section ref={reportSectionRef} className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
+      <nav aria-label="Dashboard views" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0' }}>
+        {(['home', 'reports', 'timeline'] as const).map(view => <button key={view} type="button" onClick={() => setActiveView(view)} aria-pressed={activeView === view} style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 14px', fontWeight: 800, background: activeView === view ? '#123243' : '#fff', color: activeView === view ? '#fff' : '#123243' }}>{view === 'home' ? '🏠 Dashboard' : view === 'reports' ? '📊 Reports' : '🕘 Timeline'}</button>)}
+      </nav>
+      {activeView === 'reports' && <section className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
         <h2 style={{ margin: '0 0 8px' }}>📊 Reports</h2>
         <div role="tablist" aria-label="Report period" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
           {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => setReportPeriod(period)} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
@@ -827,15 +815,15 @@ export default function Dashboard() {
           </div>
           <p style={{ fontSize: 12, color: '#526873', marginTop: 12 }}>Best period is ranked by time in range only, among periods with at least 70% estimated CGM coverage. A dash means insufficient data. Percentages are reading-based estimates, not time-weighted clinical metrics. Insulin totals include only logged rapid insulin, not basal doses; missing entries are not counted. Current periods are incomplete. No dose changes should be based on these rankings alone.</p>
         </>}
-      </section>
+      </section>}
 
-      <details className="card timelineCard" style={{ marginBottom: 14 }}><summary style={{ cursor: "pointer", fontWeight: 850, fontSize: 18, padding: 12 }}>Unified timeline · expand to view history</summary>
+      {activeView === 'timeline' &&       <details open className="card timelineCard" style={{ marginBottom: 14 }}><summary style={{ cursor: "pointer", fontWeight: 850, fontSize: 18, padding: 12 }}>Unified timeline · expand to view history</summary>
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
           {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime" title={loggedDate(item)}>{loggedDate(item)}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
         </div>
-      </details>
+      </details>}
 
       <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
