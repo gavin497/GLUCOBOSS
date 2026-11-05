@@ -198,7 +198,7 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
             <span>{new Date(hoverReading.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             <span>{hoverDelta == null ? '—' : `${hoverDelta > 0 ? '+' : ''}${hoverDelta} from prior`}</span>
           </>
-        ) : <span>Hover or touch the chart to inspect a reading</span>}
+        ) : null}
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -746,14 +746,15 @@ export default function Dashboard() {
       </section>
 
       <section className="card graphCard">
-        <div className="cardHeader"><div><h2>Live glucose</h2>{!live && <p>{cgmLoading ? 'Connecting to CGM…' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p>}</div></div>
-        <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
-        <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
+        {!live && <p role="status">{cgmLoading ? 'Connecting to CGM…' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p>}
         <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
         <div className="timeAxis">{Array.from({ length: 5 }, (_, i) => <span key={i}>{new Date(clockTick - (chartHours * 3600000) * (1 - i / 4)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>)}</div>
         <div className="chartControls" aria-label="Chart time range">
           {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
         </div>
+        <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
+        <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
+
       </section>
 
       <section className="metricsGrid">
