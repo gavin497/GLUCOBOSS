@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import GlucoseAlarms from './GlucoseAlarms';
-import { activeEntries, applyServerLogReset, cacheEntries, fetchAllLogRows, getSession, migrateLocalEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
+import { activeEntries, applyServerLogReset, cacheEntries, fetchAllLogRows, fetchInsulinSettings, getSession, migrateLocalEntries, removeEntry, saveEntry, sortEntries } from '../../lib/glucoboss-cloud';
 
 type Modal = 'insulin' | 'food' | null;
 type TimelineItem = {
@@ -266,6 +266,9 @@ export default function Dashboard() {
   const [selectedCarbs, setSelectedCarbs] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState(currentTime());
   const [foodDetails, setFoodDetails] = useState('');
+  const [mealRatios, setMealRatios] = useState<Record<string, string> | null>(null);
+  const [mealContext, setMealContext] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
+  const [exerciseContext, setExerciseContext] = useState('unknown');
   const [cgm, setCgm] = useState<CgmResponse | null>(null);
   const [cgmLoading, setCgmLoading] = useState(true);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -444,6 +447,11 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [reportPeriod]);
 
+  useEffect(() => {
+    let active = true;
+    void fetchInsulinSettings().then(settings => { if (active) setMealRatios(settings?.values ?? null); }).catch(() => { if (active) setMealRatios(null); });
+    return () => { active = false; };
+  }, []);
   const readings = cgm?.readings ?? [];
   const latest = cgm?.latest;
   const previous = cgm?.previous;
@@ -509,6 +517,21 @@ export default function Dashboard() {
   const bestReport = reportRows.filter(row => row.tir !== null).sort((a, b) => (b.tir ?? 0) - (a.tir ?? 0))[0];
   const validReportRows = reportRows.filter(row => row.tir !== null);
   const averageTimeInRange = validReportRows.length ? Math.round(validReportRows.reduce((total, row) => total + (row.tir ?? 0), 0) / validReportRows.length) : null;
+  const mealUnits = Number(mealRatios?.[`${mealContext}Units`] ?? '');
+  const mealGrams = Number(mealRatios?.[`${mealContext}Grams`] ?? '');
+  const validMealRatio = Boolean(mealRatios?.[`${mealContext}Units`] && mealRatios?.[`${mealContext}Grams`] && mealUnits > 0 && mealGrams > 0);
+  const foodCarbs = (selectedCarbs ?? 0) * 10;
+  const carbohydrateMath = validMealRatio && selectedCarbs !== null ? foodCarbs * mealUnits / mealGrams : null;
+  const recentContext = [3, 6, 9].map(hours => {
+    const subset = readings.filter(r => {
+      const t = Date.parse(r.timestamp);
+      return Number.isFinite(t) && t >= clockTick - hours * 3600000 && t <= clockTick;
+    });
+    const lowCount = subset.filter(r => r.glucose < 70).length;
+    const highCount = subset.filter(r => r.glucose > 180).length;
+    const coverage = Math.min(100, Math.round(subset.length / (hours * 12) * 100));
+    return { hours, lowCount, highCount, coverage, percentInRange: subset.length ? Math.round(subset.filter(r => r.glucose >= 70 && r.glucose <= 180).length / subset.length * 100) : null };
+  });
   const lastInsulinTime = insulinEntries.length ? Date.parse(insulinEntries[0].occurredAt || insulinEntries[0].createdAt || '') : NaN;
   const oneHourRemaining = Number.isFinite(lastInsulinTime) ? Math.ceil((lastInsulinTime + 3600000 - clockTick) / 60000) : null;
 
@@ -809,7 +832,24 @@ export default function Dashboard() {
 
       {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{loggedDate(selectedEntry)} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} disabled={savingLog} onClick={() => { void deleteEntry(selectedEntry); }}>🗑️ DELETE ENTRY</button></section></div>}
 
-      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton" disabled title="Coming later">📷 Photo estimate (coming later)</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div style={{ padding: 14, borderRadius: 14, background: '#eff6ff', marginTop: 12, color: '#10232f' }}>
+  <strong style={{ fontSize: 18 }}>🧮 Food carbohydrate estimator</strong>
+  <p style={{ fontSize: 12, margin: '6px 0 10px' }}>Arithmetic guide only — not a safe insulin dose recommendation. Always follow Jazz’s current diabetes care plan.</p>
+  <label style={labelStyle} htmlFor="mealContext">Meal ratio</label>
+  <select id="mealContext" value={mealContext} onChange={e => setMealContext(e.target.value as 'breakfast' | 'lunch' | 'dinner')} style={{ width: '100%', padding: 10, borderRadius: 10, marginBottom: 10 }}>
+    <option value="breakfast">Breakfast</option><option value="lunch">Lunch</option><option value="dinner">Dinner</option>
+  </select>
+  <div style={{ fontWeight: 850, fontSize: 21 }}>{selectedCarbs == null ? 'Enter portions to calculate' : `${selectedCarbs} portions = ${foodCarbs} g carbs`}</div>
+  {carbohydrateMath !== null ? <p style={{ fontSize: 16, fontWeight: 800 }}>Carb-ratio arithmetic: {carbohydrateMath.toFixed(2)} units <span style={{ fontSize: 12, fontWeight: 500 }}>(based only on saved {mealContext} ratio of {mealUnits} u per {mealGrams} g)</span></p> : <p style={{ fontSize: 13 }}>No verified {mealContext} ratio available. <a href="/calculator">Set prescribed meal ratios</a> to enable arithmetic.</p>}
+  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+    {recentContext.map(ctx => <div key={ctx.hours} style={{ padding: 8, background: '#fff', borderRadius: 9, fontSize: 12 }}><b>{ctx.hours}h history</b><div>{ctx.coverage >= 70 ? `${ctx.percentInRange}% in range` : 'Incomplete CGM'}</div><div>{ctx.lowCount} low · {ctx.highCount} high readings</div></div>)}
+  </div>
+  <label style={{ ...labelStyle, marginTop: 10 }} htmlFor="exerciseContext">Exercise/activity context</label>
+  <select id="exerciseContext" value={exerciseContext} onChange={e => setExerciseContext(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 10 }}>
+    <option value="unknown">Not recorded</option><option value="recent">Recent exercise</option><option value="planned">Exercise planned</option><option value="none">No exercise reported</option>
+  </select>
+  <p style={{ fontSize: 12, marginTop: 10, color: '#9f1239', fontWeight: 700 }}>Check current Dexcom reading and trend, recent lows, active Fiasp, exercise, illness and the clinician-approved plan before any injection. CGM history and activity do not automatically adjust this calculation. Fiasp can remain active beyond one hour.</p>
+</div><div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton" disabled title="Coming later">📷 Photo estimate (coming later)</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
 
       <style>{`
         .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
