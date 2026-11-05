@@ -747,13 +747,13 @@ export default function Dashboard() {
 
       <section className="card graphCard">
         <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText}` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
-        <div className="chartControls" aria-label="Chart time range">
-          {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
-        </div>
         <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
         <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
         <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
         <div className="timeAxis">{Array.from({ length: 5 }, (_, i) => <span key={i}>{new Date(clockTick - (chartHours * 3600000) * (1 - i / 4)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>)}</div>
+        <div className="chartControls" aria-label="Chart time range">
+          {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
+        </div>
       </section>
 
       <section className="metricsGrid">
