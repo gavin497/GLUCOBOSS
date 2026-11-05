@@ -729,7 +729,7 @@ export default function Dashboard() {
               <strong className="onBoardLoggedValue">{insulinEntries[0].value.toFixed(1)} u</strong>
               <span className="onBoardEventTime">{loggedClock(insulinEntries[0])}</span>
               {oneHourRemaining !== null && oneHourRemaining > 0 && oneHourRemaining <= 60 && <span className="onBoardEventTime" style={{ color: '#b91c1c', fontWeight: 700, background: '#ffffff', borderRadius: 10, padding: '3px 7px', whiteSpace: 'nowrap', lineHeight: 'inherit' }} title="Minutes until one hour after the logged injection. Not a prediction of Fiasp action or advice to redose.">{oneHourRemaining} min</span>}
-              {oneHourRemaining !== null && oneHourRemaining <= 0 && oneHourRemaining > -180 && <span className="onBoardEventTime" style={{ color: '#b91c1c', fontWeight: 700, background: '#ffffff', borderRadius: 10, padding: '3px 7px', whiteSpace: 'nowrap', lineHeight: 'inherit' }}>{oneHourRemaining} min</span>}
+              {oneHourRemaining !== null && oneHourRemaining <= 0 && <span className="onBoardEventTime" style={{ color: '#b91c1c', fontWeight: 700, background: '#ffffff', borderRadius: 10, padding: '3px 7px', whiteSpace: 'nowrap', lineHeight: 'inherit' }} title="More than one hour since the logged injection; rapid insulin may still be active.">1 hr+</span>}
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
           </div>
           <div className="onBoardMetric" aria-label="Last logged food">
