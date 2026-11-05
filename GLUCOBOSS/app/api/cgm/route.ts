@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const NIGHTSCOUT_BASE = 'https://jazzcgm.up.railway.app';
-const NIGHTSCOUT_ENDPOINTS = [
-  '/api/v1/entries/sgv.json?count=300',
-  '/api/v1/entries.json?count=300',
-];
+const NIGHTSCOUT_ENDPOINTS = ['/api/v1/entries/sgv.json', '/api/v1/entries.json'];
 
 type Reading = {
   glucose: number;
@@ -35,12 +32,12 @@ function normalizeEntry(input: any): Reading | null {
   };
 }
 
-async function getNightscoutEntries() {
+async function getNightscoutEntries(count = 300) {
   let lastError = 'No Nightscout endpoint succeeded';
 
   for (const path of NIGHTSCOUT_ENDPOINTS) {
     try {
-      const response = await fetch(`${NIGHTSCOUT_BASE}${path}`, {
+      const response = await fetch(`${NIGHTSCOUT_BASE}${path}?count=${count}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
@@ -88,7 +85,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: 'Family login required' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
   }
   try {
-    const { readings, endpoint } = await getNightscoutEntries();
+    const requested = new URL(request.url).searchParams.get('report');
+    const count = requested === 'weekly' ? 2300 : requested === 'monthly' ? 9500 : 300;
+    const { readings, endpoint } = await getNightscoutEntries(count);
     const latest = readings[readings.length - 1];
     const previous = readings.length > 1 ? readings[readings.length - 2] : null;
 
