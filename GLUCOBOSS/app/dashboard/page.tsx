@@ -275,6 +275,10 @@ export default function Dashboard() {
   const syncBusy = useRef(false);
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
+  const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [reportHistory, setReportHistory] = useState<CgmReading[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
   const [voiceMessage, setVoiceMessage] = useState('');
   const [assistantListening, setAssistantListening] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState('Tap to talk to GLUCOBOSS.');
@@ -419,6 +423,28 @@ export default function Dashboard() {
     if (timelineLoaded) cacheEntries(timeline);
   }, [timeline, timelineLoaded]);
 
+  useEffect(() => {
+    if (reportPeriod === 'daily') { setReportHistory([]); setReportError(''); setReportLoading(false); return; }
+    let cancelled = false;
+    async function loadReport() {
+      setReportLoading(true);
+      setReportError('');
+      setReportHistory([]);
+      try {
+        const session = await getSession();
+        if (!session) throw new Error('Sign in to view reports.');
+        const response = await fetch(`/api/cgm?report=${reportPeriod}`, { cache: 'no-store', headers: { Authorization: `Bearer ${session.access_token}` } });
+        if (!response.ok) throw new Error('CGM history unavailable.');
+        const result = await response.json() as CgmResponse;
+        if (!result.ok) throw new Error(result.error || 'CGM history unavailable.');
+        if (!cancelled) setReportHistory(result.readings ?? []);
+      } catch (error) { if (!cancelled) setReportError(error instanceof Error ? error.message : 'Unable to load report'); }
+      finally { if (!cancelled) setReportLoading(false); }
+    }
+    void loadReport();
+    return () => { cancelled = true; };
+  }, [reportPeriod]);
+
   const readings = cgm?.readings ?? [];
   const latest = cgm?.latest;
   const previous = cgm?.previous;
@@ -437,6 +463,28 @@ export default function Dashboard() {
 
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin');
   const foodEntries = timeline.filter((item) => item.kind === 'food');
+
+  const reportEnd = clockTick;
+  const reportStart = reportEnd - (reportPeriod === 'daily' ? 24 : reportPeriod === 'weekly' ? 168 : 720) * 3600000;
+  const reportSource = reportPeriod === 'daily' ? readings : reportHistory;
+  const reportSamples = reportSource.filter(r => Number.isFinite(r.glucose) && Number.isFinite(Date.parse(r.timestamp)) && Date.parse(r.timestamp) >= reportStart && Date.parse(r.timestamp) <= reportEnd);
+  const reportTotal = reportSamples.length;
+  const reportLow = reportSamples.filter(r => r.glucose < 70).length;
+  const reportInRange = reportSamples.filter(r => r.glucose >= 70 && r.glucose <= 180).length;
+  const reportHigh = reportSamples.filter(r => r.glucose > 180).length;
+  const reportCoverage = Math.min(100, Math.round(100 * reportTotal / ((reportEnd - reportStart) / 300000)));
+  const reportInsulin = insulinEntries.filter(item => {
+    const time = Date.parse(item.occurredAt || item.createdAt || '');
+    return Number.isFinite(time) && time >= reportStart && time <= reportEnd;
+  });
+  const reportUnits = reportInsulin.reduce((sum, item) => sum + item.value, 0);
+  const reportFood = foodEntries.filter(item => {
+    const time = Date.parse(item.occurredAt || item.createdAt || '');
+    return Number.isFinite(time) && time >= reportStart && time <= reportEnd;
+  }).reduce((sum, item) => sum + item.value * 20, 0);
+  const reportReliable = reportCoverage >= 70;
+  const lastInsulinTime = insulinEntries.length ? Date.parse(insulinEntries[0].occurredAt || insulinEntries[0].createdAt || '') : NaN;
+  const oneHourRemaining = Number.isFinite(lastInsulinTime) ? Math.ceil((lastInsulinTime + 3600000 - clockTick) / 60000) : null;
 
   const cgmTimeline = readings.slice(-3).reverse().map((r, i, arr) => {
     const next = arr[i + 1];
@@ -631,7 +679,7 @@ export default function Dashboard() {
               aria-live="polite">
               <strong className="onBoardLoggedValue">{insulinEntries[0].value.toFixed(1)} u</strong>
               <span className="onBoardEventTime">{loggedClock(insulinEntries[0])}</span>
-              <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>
+              <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>{oneHourRemaining !== null && oneHourRemaining > 0 && oneHourRemaining <= 60 && <span style={{ color: '#b91c1c', fontWeight: 900, fontSize: 12 }} title="Time since the logged injection only. Not a prediction of peak Fiasp action or advice to redose.">1-hour mark in {oneHourRemaining} min</span>}{oneHourRemaining !== null && oneHourRemaining <= 0 && oneHourRemaining > -60 && <span style={{ color: '#b91c1c', fontWeight: 800, fontSize: 12 }}>1-hour mark passed</span>}
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
           </div>
           <div className="onBoardMetric" aria-label="Last logged food">
@@ -647,16 +695,6 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button type="button" onClick={startAssistant} aria-pressed={assistantListening} style={{ border: 0, borderRadius: 999, background: assistantListening ? '#b91c1c' : '#087c70', color: 'white', padding: '13px 20px', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>{assistantListening ? '■ Stop listening' : '🎤 Tap to Talk'}</button>
-          <span style={{ flex: 1, minWidth: 180, fontSize: 14, color: '#334155' }} role="status" aria-live="polite">{assistantMessage}</span>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
-      </section>
-
-      <GlucoseAlarms reading={live ? currentValue : undefined} timestamp={latest?.timestamp} connected={live} />
-
       <section className="card graphCard">
         <div className="cardHeader"><div><h2>Live glucose</h2><p>{cgmLoading ? 'Connecting to CGM…' : live ? `CGM connected · latest reading ${ageText}` : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p></div><span className="statusPill" style={statusStyle}>{statusText}</span></div>
         <div className="chartControls" aria-label="Chart time range">
@@ -665,7 +703,7 @@ export default function Dashboard() {
         <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
         <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
         <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
-        <div className="timeAxis"><span>{chartHours} HOURS AGO</span><span>NOW</span></div>
+        <div className="timeAxis">{Array.from({ length: 5 }, (_, i) => <span key={i}>{new Date(clockTick - (chartHours * 3600000) * (1 - i / 4)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>)}</div>
       </section>
 
       <section className="metricsGrid">
@@ -690,13 +728,46 @@ export default function Dashboard() {
 
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
-      <section className="card timelineCard">
+      <section className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
+        <h2 style={{ margin: '0 0 8px' }}>📊 Reports</h2>
+        <div role="tablist" aria-label="Report period" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => setReportPeriod(period)} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
+        </div>
+        <p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>Rolling {reportPeriod === 'daily' ? '24 hours' : reportPeriod === 'weekly' ? '7 days' : '30 days'} · glucose target 70–180 mg/dL</p>
+        {reportLoading ? <p>Loading CGM history…</p> : reportError ? <p role="alert" style={{ color: '#b91c1c' }}>{reportError}</p> : <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+            {[
+              ['Time in range', reportReliable ? `${Math.round(reportInRange / reportTotal * 100)}%` : '—'],
+              ['Below 70', reportReliable ? `${Math.round(reportLow / reportTotal * 100)}%` : '—'],
+              ['Above 180', reportReliable ? `${Math.round(reportHigh / reportTotal * 100)}%` : '—'],
+              ['Rapid insulin logged', `${reportUnits.toFixed(1)} u`],
+              ['Carbs logged', `${Math.round(reportFood)} g`],
+              ['CGM coverage (est.)', `${reportCoverage}%`],
+            ].map(([label, value]) => <div key={label} style={{ padding: 12, borderRadius: 12, background: '#f1f5f9' }}><div style={{ fontSize: 12, color: '#526873' }}>{label}</div><strong style={{ fontSize: 22 }}>{value}</strong></div>)}
+          </div>
+          <p style={{ fontSize: 12, color: '#526873', marginTop: 12 }}>{reportTotal} CGM readings · {reportInsulin.length} rapid-insulin entries. {reportReliable ? 'Time-in-range percentages are estimates from available readings, not time-weighted clinical calculations.' : 'Insufficient CGM coverage for a representative time-in-range percentage. More history is needed.'} Insulin totals reflect logged rapid insulin only; unlogged doses and basal insulin are excluded.</p>
+          {reportCoverage < 90 && <p style={{ fontSize: 12, color: '#9f1239', fontWeight: 700 }}>CGM data is incomplete for this period; interpret results cautiously.</p>}
+          <p style={{ fontSize: 12, color: '#526873' }}>Useful to review: repeated overnight lows, time above range after meals, and whether insulin and carbohydrate entries are complete. This report does not recommend dose changes.</p>
+        </>}
+      </section>
+
+      <details className="card timelineCard" style={{ marginBottom: 14 }}><summary style={{ cursor: "pointer", fontWeight: 850, fontSize: 18, padding: 12 }}>Unified timeline · expand to view history</summary>
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
           {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime" title={loggedDate(item)}>{loggedDate(item)}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
         </div>
+      </details>
+
+      <section aria-label="Talk to GLUCOBOSS" style={{ margin: '12px 0', padding: '12px 16px', border: '1px solid #dce5ea', borderRadius: 16, background: '#f8fafc' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button type="button" onClick={startAssistant} aria-pressed={assistantListening} style={{ border: 0, borderRadius: 999, background: assistantListening ? '#b91c1c' : '#087c70', color: 'white', padding: '13px 20px', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>{assistantListening ? '■ Stop listening' : '🎤 Tap to Talk'}</button>
+          <span style={{ flex: 1, minWidth: 180, fontSize: 14, color: '#334155' }} role="status" aria-live="polite">{assistantMessage}</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>Ask: “GLUCOBOSS, what's Jazz's reading?” Voice answers use the latest loaded dashboard data, not continuous monitoring. Check Dexcom for urgent decisions.</div>
       </section>
+
+      <GlucoseAlarms reading={live ? currentValue : undefined} timestamp={latest?.timestamp} connected={live} />
 
       <nav className="mobileDock" aria-label="Quick actions"><button onClick={() => openNew('insulin')}>💉<span>Insulin</span></button><button onClick={() => openNew('food')}>🍴<span>Food</span></button><button onClick={() => openNew('insulin')}>🎙️<span>Voice</span></button></nav>
 
