@@ -728,7 +728,7 @@ export default function Dashboard() {
               aria-live="polite">
               <strong className="onBoardLoggedValue">{insulinEntries[0].value.toFixed(1)} u</strong>
               <span className="onBoardEventTime">{loggedClock(insulinEntries[0])}</span>
-              <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>{oneHourRemaining !== null && oneHourRemaining > 0 && oneHourRemaining <= 60 && <span style={{ color: '#b91c1c', fontWeight: 900, fontSize: 12 }} title="Time since the logged injection only. Not a prediction of peak Fiasp action or advice to redose.">1-hour mark in {oneHourRemaining} min</span>}{oneHourRemaining !== null && oneHourRemaining <= 0 && oneHourRemaining > -60 && <span style={{ color: '#b91c1c', fontWeight: 800, fontSize: 12 }}>1-hour mark passed</span>}
+              <span className="onBoardEventDate">{loggedDay(insulinEntries[0])}</span>{oneHourRemaining !== null && oneHourRemaining > 0 && oneHourRemaining <= 60 && <span style={{ color: '#b91c1c', fontWeight: 900, fontSize: 20, lineHeight: 1.25, display: 'inline-block', padding: '5px 0' }} title="Time since the logged injection only. Not a prediction of peak Fiasp action or advice to redose.">1-hour mark in {oneHourRemaining} min</span>}{oneHourRemaining !== null && oneHourRemaining <= 0 && oneHourRemaining > -60 && <span style={{ color: '#b91c1c', fontWeight: 900, fontSize: 20, lineHeight: 1.25, display: 'inline-block', padding: '5px 0' }}>1-hour mark passed</span>}
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
           </div>
           <div className="onBoardMetric" aria-label="Last logged food">
