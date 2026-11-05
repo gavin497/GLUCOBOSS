@@ -280,6 +280,8 @@ export default function Dashboard() {
   const [chartHours, setChartHours] = useState(6);
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [reportHistory, setReportHistory] = useState<CgmReading[]>([]);
+  const reportSectionRef = useRef<HTMLElement | null>(null);
+  const [reportsVisible, setReportsVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [voiceMessage, setVoiceMessage] = useState('');
@@ -427,6 +429,21 @@ export default function Dashboard() {
   }, [timeline, timelineLoaded]);
 
   useEffect(() => {
+    const node = reportSectionRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === 'undefined') { setReportsVisible(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setReportsVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '300px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!reportsVisible) return;
     let cancelled = false;
     async function loadReport() {
       setReportLoading(true);
@@ -445,7 +462,7 @@ export default function Dashboard() {
     }
     void loadReport();
     return () => { cancelled = true; };
-  }, [reportPeriod]);
+  }, [reportPeriod, reportsVisible]);
 
   useEffect(() => {
     let active = true;
@@ -779,7 +796,7 @@ export default function Dashboard() {
 
       <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
 
-      <section className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
+      <section ref={reportSectionRef} className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
         <h2 style={{ margin: '0 0 8px' }}>📊 Reports</h2>
         <div role="tablist" aria-label="Report period" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
           {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => setReportPeriod(period)} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
