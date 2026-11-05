@@ -739,7 +739,7 @@ export default function Dashboard() {
               aria-live="polite">
               <strong className="onBoardLoggedValue">{Math.round(foodEntries[0].value * 10)} g</strong>
               <span className="onBoardEventTime">{loggedClock(foodEntries[0])}</span>
-              <span className="onBoardEventDate">{loggedDay(foodEntries[0])}</span>
+              
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No food logged' : 'Loading…'}</span>}
           </div>
         </div>
