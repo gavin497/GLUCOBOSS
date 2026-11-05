@@ -424,7 +424,6 @@ export default function Dashboard() {
   }, [timeline, timelineLoaded]);
 
   useEffect(() => {
-    if (reportPeriod === 'daily') { setReportHistory([]); setReportError(''); setReportLoading(false); return; }
     let cancelled = false;
     async function loadReport() {
       setReportLoading(true);
@@ -464,25 +463,50 @@ export default function Dashboard() {
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin');
   const foodEntries = timeline.filter((item) => item.kind === 'food');
 
-  const reportEnd = clockTick;
-  const reportStart = reportEnd - (reportPeriod === 'daily' ? 24 : reportPeriod === 'weekly' ? 168 : 720) * 3600000;
-  const reportSource = reportPeriod === 'daily' ? readings : reportHistory;
-  const reportSamples = reportSource.filter(r => Number.isFinite(r.glucose) && Number.isFinite(Date.parse(r.timestamp)) && Date.parse(r.timestamp) >= reportStart && Date.parse(r.timestamp) <= reportEnd);
-  const reportTotal = reportSamples.length;
-  const reportLow = reportSamples.filter(r => r.glucose < 70).length;
-  const reportInRange = reportSamples.filter(r => r.glucose >= 70 && r.glucose <= 180).length;
-  const reportHigh = reportSamples.filter(r => r.glucose > 180).length;
-  const reportCoverage = Math.min(100, Math.round(100 * reportTotal / ((reportEnd - reportStart) / 300000)));
-  const reportInsulin = insulinEntries.filter(item => {
-    const time = Date.parse(item.occurredAt || item.createdAt || '');
-    return Number.isFinite(time) && time >= reportStart && time <= reportEnd;
+  // Compare calendar days, Monday-start calendar weeks and calendar months.
+  // Local clock boundaries are intentional: families review daily insulin by date.
+  const reportSource = reportHistory;
+  const reportRows = Array.from({ length: reportPeriod === 'daily' ? 7 : reportPeriod === 'weekly' ? 6 : 3 }, (_, index) => {
+    const nowDate = new Date(clockTick);
+    let start: Date;
+    let end: Date;
+    let label: string;
+    if (reportPeriod === 'daily') {
+      start = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - index);
+      end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+      label = start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+    } else if (reportPeriod === 'weekly') {
+      const mondayOffset = (nowDate.getDay() + 6) % 7;
+      start = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - mondayOffset - index * 7);
+      end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+      label = `Week of ${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    } else {
+      start = new Date(nowDate.getFullYear(), nowDate.getMonth() - index, 1);
+      end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      label = start.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    }
+    const startMs = start.getTime();
+    const endMs = Math.min(end.getTime(), clockTick);
+    const samples = reportSource.filter(r => {
+      const t = Date.parse(r.timestamp);
+      return Number.isFinite(r.glucose) && Number.isFinite(t) && t >= startMs && t < endMs;
+    });
+    const insulin = insulinEntries.filter(item => {
+      const t = Date.parse(item.occurredAt || item.createdAt || '');
+      return Number.isFinite(t) && t >= startMs && t < endMs;
+    });
+    const carbs = foodEntries.filter(item => {
+      const t = Date.parse(item.occurredAt || item.createdAt || '');
+      return Number.isFinite(t) && t >= startMs && t < endMs;
+    });
+    const expected = Math.max(1, (endMs - startMs) / 300000);
+    const coverage = Math.min(100, Math.round(samples.length / expected * 100));
+    const tir = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose >= 70 && r.glucose <= 180).length / samples.length * 100) : null;
+    const low = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose < 70).length / samples.length * 100) : null;
+    const high = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose > 180).length / samples.length * 100) : null;
+    return { label, tir, low, high, coverage, samples: samples.length, insulinUnits: insulin.reduce((total, item) => total + item.value, 0), insulinCount: insulin.length, carbGrams: carbs.reduce((total, item) => total + item.value * 20, 0), isCurrent: index === 0 };
   });
-  const reportUnits = reportInsulin.reduce((sum, item) => sum + item.value, 0);
-  const reportFood = foodEntries.filter(item => {
-    const time = Date.parse(item.occurredAt || item.createdAt || '');
-    return Number.isFinite(time) && time >= reportStart && time <= reportEnd;
-  }).reduce((sum, item) => sum + item.value * 20, 0);
-  const reportReliable = reportCoverage >= 70;
+  const bestReport = reportRows.filter(row => row.tir !== null).sort((a, b) => (b.tir ?? 0) - (a.tir ?? 0))[0];
   const lastInsulinTime = insulinEntries.length ? Date.parse(insulinEntries[0].occurredAt || insulinEntries[0].createdAt || '') : NaN;
   const oneHourRemaining = Number.isFinite(lastInsulinTime) ? Math.ceil((lastInsulinTime + 3600000 - clockTick) / 60000) : null;
 
@@ -733,21 +757,26 @@ export default function Dashboard() {
         <div role="tablist" aria-label="Report period" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
           {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => setReportPeriod(period)} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
         </div>
-        <p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>Rolling {reportPeriod === 'daily' ? '24 hours' : reportPeriod === 'weekly' ? '7 days' : '30 days'} · glucose target 70–180 mg/dL</p>
-        {reportLoading ? <p>Loading CGM history…</p> : reportError ? <p role="alert" style={{ color: '#b91c1c' }}>{reportError}</p> : <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-            {[
-              ['Time in range', reportReliable ? `${Math.round(reportInRange / reportTotal * 100)}%` : '—'],
-              ['Below 70', reportReliable ? `${Math.round(reportLow / reportTotal * 100)}%` : '—'],
-              ['Above 180', reportReliable ? `${Math.round(reportHigh / reportTotal * 100)}%` : '—'],
-              ['Rapid insulin logged', `${reportUnits.toFixed(1)} u`],
-              ['Carbs logged', `${Math.round(reportFood)} g`],
-              ['CGM coverage (est.)', `${reportCoverage}%`],
-            ].map(([label, value]) => <div key={label} style={{ padding: 12, borderRadius: 12, background: '#f1f5f9' }}><div style={{ fontSize: 12, color: '#526873' }}>{label}</div><strong style={{ fontSize: 22 }}>{value}</strong></div>)}
+        <p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>{reportPeriod === 'daily' ? 'Today and the previous six calendar days' : reportPeriod === 'weekly' ? 'This week and five previous Monday–Sunday weeks' : 'This month and the previous two calendar months'} · target 70–180 mg/dL</p>
+        {reportLoading ? <p>Loading historical CGM readings…</p> : reportError ? <p role="alert" style={{ color: '#b91c1c' }}>{reportError}</p> : <>
+          {bestReport && <p style={{ padding: 10, borderRadius: 10, background: '#ecfdf5', color: '#065f46', fontWeight: 800 }}>🏆 Best {reportPeriod === 'daily' ? 'day' : reportPeriod === 'weekly' ? 'week' : 'month'}: {bestReport.label} · {bestReport.tir}% in range</p>}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 570 }}>
+              <thead><tr style={{ textAlign: 'left', borderBottom: '2px solid #cbd5e1' }}>
+                {['Period', 'In range', 'Low', 'High', 'Rapid insulin', 'Carbs', 'Coverage'].map(h => <th key={h} style={{ padding: '10px 6px' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{reportRows.map(row => <tr key={row.label} style={{ borderBottom: '1px solid #e2e8f0', background: bestReport?.label === row.label ? '#f0fdf4' : undefined }}>
+                <td style={{ padding: '12px 6px', fontWeight: 800 }}>{row.label}{row.isCurrent ? ' · current' : ''}</td>
+                <td style={{ padding: '12px 6px', fontWeight: 900, color: '#087c70' }}>{row.tir === null ? '—' : `${row.tir}%`}</td>
+                <td style={{ padding: '12px 6px' }}>{row.low === null ? '—' : `${row.low}%`}</td>
+                <td style={{ padding: '12px 6px' }}>{row.high === null ? '—' : `${row.high}%`}</td>
+                <td style={{ padding: '12px 6px' }}>{row.insulinUnits.toFixed(1)} u</td>
+                <td style={{ padding: '12px 6px' }}>{Math.round(row.carbGrams)} g</td>
+                <td style={{ padding: '12px 6px' }}>{row.coverage}%</td>
+              </tr>)}</tbody>
+            </table>
           </div>
-          <p style={{ fontSize: 12, color: '#526873', marginTop: 12 }}>{reportTotal} CGM readings · {reportInsulin.length} rapid-insulin entries. {reportReliable ? 'Time-in-range percentages are estimates from available readings, not time-weighted clinical calculations.' : 'Insufficient CGM coverage for a representative time-in-range percentage. More history is needed.'} Insulin totals reflect logged rapid insulin only; unlogged doses and basal insulin are excluded.</p>
-          {reportCoverage < 90 && <p style={{ fontSize: 12, color: '#9f1239', fontWeight: 700 }}>CGM data is incomplete for this period; interpret results cautiously.</p>}
-          <p style={{ fontSize: 12, color: '#526873' }}>Useful to review: repeated overnight lows, time above range after meals, and whether insulin and carbohydrate entries are complete. This report does not recommend dose changes.</p>
+          <p style={{ fontSize: 12, color: '#526873', marginTop: 12 }}>Best period is ranked by time in range only, among periods with at least 70% estimated CGM coverage. A dash means insufficient data. Percentages are reading-based estimates, not time-weighted clinical metrics. Insulin totals include only logged rapid insulin, not basal doses; missing entries are not counted. Current periods are incomplete. No dose changes should be based on these rankings alone.</p>
         </>}
       </section>
 
