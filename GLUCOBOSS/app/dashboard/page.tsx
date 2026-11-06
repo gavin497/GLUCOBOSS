@@ -235,12 +235,19 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
         <polyline points={points} fill="none" stroke="url(#glucoseRangeGradient)" className="glucoseLine" />
         {chartReadings.map((r, i) => <circle key={i} cx={xForTime(r.timestamp)} cy={y(r.glucose)} r="4" fill="#fff" stroke={glucoseColour(r.glucose)} strokeWidth="3" />)}
         {chartEvents.map((event, i) => {
-          const x = Math.max(17, Math.min(width - 17, xForTime(event.occurredAt || event.createdAt || '')));
-          const top = i % 2 === 0 ? 22 : 55;
+          const basal = isBasalEntry(event);
+          const x = Math.max(35, Math.min(width - 35, xForTime(event.occurredAt || event.createdAt || '')));
+          const top = i % 2 === 0 ? 24 : 66;
+          const colour = basal ? '#0f766e' : event.kind === 'insulin' ? '#6d28d9' : '#b45309';
+          const marker = basal ? `S${event.value.toString()}` : event.kind === 'insulin' ? 'I' : 'F';
           return <g key={event.id} pointerEvents="none">
-            <title>{`${isBasalEntry(event) ? 'Slow insulin (Lantus)' : event.kind === 'insulin' ? 'Rapid insulin' : 'Food'}: ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} g carbs`} at ${loggedClock(event)} on ${loggedDay(event)}`}</title>
-            <circle cx={x} cy={top} r="15" fill={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} stroke="#fff" strokeWidth="3" />
-            <text x={x} y={top + 5} textAnchor="middle" fontSize={isBasalEntry(event) ? "11" : "15"} fontWeight="900" fill="#fff">{isBasalEntry(event) ? `S${event.value.toFixed(0) === String(event.value) ? event.value.toFixed(0) : event.value}` : event.kind === 'insulin' ? 'I' : 'F'}</text>
+            <title>{`${basal ? 'Slow insulin (Lantus)' : event.kind === 'insulin' ? 'Rapid insulin' : 'Food'}: ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} g carbs`} at ${loggedClock(event)} on ${loggedDay(event)}`}</title>
+            <circle cx={x} cy={top} r={basal ? 19 : 15} fill={colour} stroke="#fff" strokeWidth="3" />
+            <text x={x} y={top + 5} textAnchor="middle" fontSize={basal ? "12" : "15"} fontWeight="900" fill="#fff">{marker}</text>
+            {basal && <g>
+              <rect x={x - 27} y={top + 20} width="54" height="18" rx="8" fill="#fff" stroke="#0f766e" strokeWidth="1" />
+              <text x={x} y={top + 33} textAnchor="middle" fontSize="11" fontWeight="800" fill="#0f766e">{loggedClock(event)}</text>
+            </g>}
           </g>;
         })}
         {hoveredIndex != null && chartReadings.length > 0 && <>
