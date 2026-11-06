@@ -319,7 +319,7 @@ export default function Dashboard() {
     };
     if (/glucose|sugar|reading|level|how is jazz|how.s jazz|high|low|dropping|rising|trend/.test(q)) return speakAssistant(glucoseReply());
     if (/insulin|injection|dose|units/.test(q)) {
-      const last = timeline.filter(x => x.kind === 'insulin').sort((a,b) => Date.parse(b.occurredAt || b.createdAt || '') - Date.parse(a.occurredAt || a.createdAt || ''))[0];
+      const last = timeline.filter(x => x.kind === 'insulin' && !isBasalEntry(x)).sort((a,b) => Date.parse(b.occurredAt || b.createdAt || '') - Date.parse(a.occurredAt || a.createdAt || ''))[0];
       return speakAssistant(last ? `The last recorded insulin entry was ${last.value} units at ${loggedClock(last)}. This is a recorded entry, not an insulin-on-board calculation.` : 'No recorded insulin entry is available. Please verify against your insulin records.');
     }
     if (/food|carb|portion|eat|meal/.test(q)) {
@@ -474,7 +474,6 @@ export default function Dashboard() {
   const statusStyle = stale ? { background: '#fee2e2', color: '#b91c1c' } : undefined;
 
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin' && !isBasalEntry(item));
-  const basalEntries = timeline.filter(isBasalEntry);
   const foodEntries = timeline.filter((item) => item.kind === 'food');
 
   // Compare calendar days, Monday-start calendar weeks and calendar months.
@@ -756,7 +755,7 @@ export default function Dashboard() {
 
       <section className="card graphCard">
         {!live && <p role="status">{cgmLoading ? 'Connecting to CGM…' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p>}
-        <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
+        <CgmChart readings={readings} hours={chartHours} events={timeline.filter(item => !isBasalEntry(item))} onSelectEvent={setSelectedEntry} />
         <div className="timeAxis">{Array.from({ length: 5 }, (_, i) => <span key={i}>{new Date(clockTick - (chartHours * 3600000) * (1 - i / 4)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>)}</div>
         <div className="chartControls" aria-label="Chart time range">
           {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
