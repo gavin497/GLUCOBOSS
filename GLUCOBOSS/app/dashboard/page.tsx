@@ -21,6 +21,8 @@ type CgmReading = { glucose: number; timestamp: string; trend?: string };
 type CgmResponse = { ok: boolean; readings?: CgmReading[]; latest?: CgmReading; previous?: CgmReading | null; error?: string };
 
 const insulinOptions = [0.5, 1, 1.5, 2, 2.5, 3];
+const basalOptions = [8, 8.5, 9, 9.5, 10, 10.5];
+const isBasalEntry = (item: TimelineItem) => item.kind === 'insulin' && item.detail.startsWith('BASAL_LANTUS:');
 const carbOptions = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 const chartRanges = [2, 4, 6, 12, 24];
 
@@ -266,6 +268,7 @@ export default function Dashboard() {
   const [selectedCarbs, setSelectedCarbs] = useState<number | null>(null);
   const [selectedTime, setSelectedTime] = useState(currentTime());
   const [foodDetails, setFoodDetails] = useState('');
+  const [basalMode, setBasalMode] = useState(false);
   const [mealRatios, setMealRatios] = useState<Record<string, string> | null>(null);
   const [mealContext, setMealContext] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
   const [exerciseContext, setExerciseContext] = useState('unknown');
@@ -470,7 +473,8 @@ export default function Dashboard() {
   const statusText = !live ? 'OFFLINE' : `${stale ? 'STALE' : 'LIVE'} · ${latestAgeMinutes != null && latestAgeMinutes < 1 ? '<1 MIN' : `${latestAgeMinutes ?? '?'} MIN${latestAgeMinutes === 1 ? '' : 'S'} AGO`}`;
   const statusStyle = stale ? { background: '#fee2e2', color: '#b91c1c' } : undefined;
 
-  const insulinEntries = timeline.filter((item) => item.kind === 'insulin');
+  const insulinEntries = timeline.filter((item) => item.kind === 'insulin' && !isBasalEntry(item));
+  const basalEntries = timeline.filter(isBasalEntry);
   const foodEntries = timeline.filter((item) => item.kind === 'food');
 
   // Compare calendar days, Monday-start calendar weeks and calendar months.
@@ -558,6 +562,7 @@ export default function Dashboard() {
     setSelectedTime(currentTime());
     setVoiceMessage('');
     setFoodDetails('');
+    setBasalMode(false);
     if (kind === 'insulin') {
       setSelectedInsulin(null);
       setSelectedCarbs(null);
@@ -574,6 +579,7 @@ export default function Dashboard() {
     setSelectedTime(item.time);
     setVoiceMessage('');
     if (item.kind === 'insulin') {
+      setBasalMode(isBasalEntry(item));
       setSelectedInsulin(item.value);
       setSelectedCarbs(null);
       setFoodDetails('');
@@ -624,6 +630,7 @@ export default function Dashboard() {
 
   function closeLogModal() {
     setModal(null);
+    setBasalMode(false);
     setEditingId(null);
     setSelectedInsulin(null);
     setSelectedCarbs(null);
@@ -642,8 +649,8 @@ export default function Dashboard() {
       value: selectedInsulin,
       time: selectedTime,
       icon: '💉',
-      title: `${selectedInsulin.toFixed(1)} units rapid insulin`,
-      detail: previous ? 'Edited entry' : 'Manual entry',
+      title: basalMode ? `${selectedInsulin.toFixed(1)} units Lantus (slow)` : `${selectedInsulin.toFixed(1)} units rapid insulin`,
+      detail: basalMode ? 'BASAL_LANTUS: nightly slow-acting insulin' : (previous ? 'Edited entry' : 'Manual entry'),
       createdAt: previous?.createdAt || new Date().toISOString(),
       occurredAt: timestampAt(selectedTime, base),
     };
@@ -839,7 +846,7 @@ export default function Dashboard() {
 
       {selectedEntry && <div className="modalBackdrop" onClick={() => setSelectedEntry(null)}><section className="modalSheet" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={() => setSelectedEntry(null)}>×</button><span className="eyebrow">LOGGED ENTRY</span><h2>{selectedEntry.title}</h2><p className="modalIntro">{loggedDate(selectedEntry)} · {selectedEntry.detail}</p><button className="confirmButton" onClick={() => openEdit(selectedEntry)}>✏️ EDIT ENTRY</button><button className="secondaryButton" style={{ borderColor: '#dc2626', color: '#dc2626' }} disabled={savingLog} onClick={() => { void deleteEntry(selectedEntry); }}>🗑️ DELETE ENTRY</button></section></div>}
 
-      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>Insulin dose</h2><p className="modalIntro">Choose a preset, speak it, or enter the exact quantity.</p><div className="bigButtonGrid compactGrid">{insulinOptions.map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : 'CONFIRM INSULIN'}</button></> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div style={{ padding: 14, borderRadius: 14, background: '#eff6ff', marginTop: 12, color: '#10232f' }}>
+      {modal && <div className="modalBackdrop" onClick={closeLogModal}><section className="modalSheet compactLogModal" onClick={(e) => e.stopPropagation()}><button className="closeButton" onClick={closeLogModal}>×</button>{modal === 'insulin' ? <><span className="eyebrow">{basalMode ? 'LOG SLOW · LANTUS' : editingId ? 'EDIT INSULIN' : 'LOG INSULIN'}</span><h2>{basalMode ? 'Slow insulin (Lantus)' : 'Rapid insulin dose'}</h2><p className="modalIntro">{basalMode ? 'Record the prescribed Lantus dose actually administered. This does not affect rapid-insulin calculations.' : 'Choose a preset, speak it, or enter the exact quantity.'}</p><div className="bigButtonGrid compactGrid">{(basalMode ? basalOptions : insulinOptions).map((n) => <button key={n} className={selectedInsulin === n ? 'selected' : ''} onClick={() => setSelectedInsulin(n)}>{n}</button>)}{!basalMode && <button className="other" onClick={() => setSelectedInsulin((selectedInsulin ?? 0) + 0.5)}>+</button>}</div>{!basalMode && <button className="secondaryButton voiceLogButton" onClick={() => startVoice('insulin')}>🎙️ LOG INSULIN BY VOICE</button>}{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div className="compactFields"><div><label style={labelStyle} htmlFor="insulinQuantity">Quantity (units)</label><input id="insulinQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedInsulin ?? ''} onChange={(e) => setSelectedInsulin(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="insulinTime">Time</label><input id="insulinTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="confirmButton compactConfirm" disabled={savingLog || selectedInsulin == null || selectedInsulin <= 0 || !selectedTime} onClick={confirmInsulin}>{editingId ? 'SAVE CHANGES' : basalMode ? 'CONFIRM SLOW INSULIN' : 'CONFIRM INSULIN'}</button>{!editingId && <button type="button" className="secondaryButton" style={{ width: '100%', marginTop: 14, padding: 12 }} onClick={() => { setBasalMode(!basalMode); setSelectedInsulin(null); }}>{basalMode ? '← Back to rapid insulin' : '💉 LOG SLOW (LANTUS)'}</button>}</> : <><span className="eyebrow">{editingId ? 'EDIT FOOD' : 'LOG FOOD'}</span><h2>Carbohydrate quantity</h2><p className="modalIntro">1 portion = 10g carbohydrate. Add what Jazz ate, then choose or enter the quantity.</p><label style={labelStyle} htmlFor="foodDetails">Food details</label><input id="foodDetails" type="text" style={fieldStyle} placeholder="e.g. pasta + bread" value={foodDetails} onChange={(e) => setFoodDetails(e.target.value)} /><div className="bigButtonGrid carbs compactGrid">{carbOptions.map((n) => <button key={n} className={selectedCarbs === n ? 'selected' : ''} onClick={() => setSelectedCarbs(n)}>{n}</button>)}<button className="other" onClick={() => setSelectedCarbs((selectedCarbs ?? 0) + 0.5)}>+</button></div><button className="secondaryButton voiceLogButton" onClick={() => startVoice('food')}>🎙️ LOG CARBS BY VOICE</button>{voiceMessage && <div className="voiceStatus">{voiceMessage}</div>}<div style={{ padding: 14, borderRadius: 14, background: '#eff6ff', marginTop: 12, color: '#10232f' }}>
   <strong style={{ fontSize: 18 }}>🧮 Food carbohydrate estimator</strong>
   <p style={{ fontSize: 12, margin: '6px 0 10px' }}>Arithmetic guide only — not a safe insulin dose recommendation. Always follow Jazz’s current diabetes care plan.</p>
   <label style={labelStyle} htmlFor="mealContext">Meal ratio</label>
