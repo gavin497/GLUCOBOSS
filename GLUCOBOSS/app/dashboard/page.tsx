@@ -230,7 +230,7 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
         <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
         {chartEvents.map((event) => {
           const x = xForTime(event.occurredAt || event.createdAt || '');
-          return <line key={`line-${event.id}`} x1={x} x2={x} y1="8" y2={height} stroke={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} strokeWidth="2.5" strokeDasharray="6 5" opacity=".78" />;
+          return <line key={`line-${event.id}`} x1={x} x2={x} y1="8" y2={height} stroke={isBasalEntry(event) ? '#0f766e' : event.kind === 'insulin' ? '#6d28d9' : '#b45309'} strokeWidth="2.5" strokeDasharray="6 5" opacity=".78" />;
         })}
         <polyline points={points} fill="none" stroke="url(#glucoseRangeGradient)" className="glucoseLine" />
         {chartReadings.map((r, i) => <circle key={i} cx={xForTime(r.timestamp)} cy={y(r.glucose)} r="4" fill="#fff" stroke={glucoseColour(r.glucose)} strokeWidth="3" />)}
@@ -238,9 +238,9 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
           const x = Math.max(17, Math.min(width - 17, xForTime(event.occurredAt || event.createdAt || '')));
           const top = i % 2 === 0 ? 22 : 55;
           return <g key={event.id} pointerEvents="none">
-            <title>{`${event.kind === 'insulin' ? 'Insulin' : 'Food'}: ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} g carbs`} at ${loggedClock(event)} on ${loggedDay(event)}`}</title>
+            <title>{`${isBasalEntry(event) ? 'Slow insulin (Lantus)' : event.kind === 'insulin' ? 'Rapid insulin' : 'Food'}: ${event.kind === 'insulin' ? `${event.value.toFixed(1)} units` : `${Math.round(event.value * 10)} g carbs`} at ${loggedClock(event)} on ${loggedDay(event)}`}</title>
             <circle cx={x} cy={top} r="15" fill={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} stroke="#fff" strokeWidth="3" />
-            <text x={x} y={top + 5} textAnchor="middle" fontSize="15" fontWeight="900" fill="#fff">{event.kind === 'insulin' ? 'I' : 'F'}</text>
+            <text x={x} y={top + 5} textAnchor="middle" fontSize={isBasalEntry(event) ? "11" : "15"} fontWeight="900" fill="#fff">{isBasalEntry(event) ? `S${event.value.toFixed(0) === String(event.value) ? event.value.toFixed(0) : event.value}` : event.kind === 'insulin' ? 'I' : 'F'}</text>
           </g>;
         })}
         {hoveredIndex != null && chartReadings.length > 0 && <>
@@ -475,6 +475,7 @@ export default function Dashboard() {
 
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin' && !isBasalEntry(item));
   const foodEntries = timeline.filter((item) => item.kind === 'food');
+  const basalEntries = timeline.filter(isBasalEntry);
 
   // Compare calendar days, Monday-start calendar weeks and calendar months.
   // Local clock boundaries are intentional: families review daily insulin by date.
@@ -740,6 +741,13 @@ export default function Dashboard() {
               {oneHourRemaining !== null && oneHourRemaining <= 0 && <span className="onBoardEventTime" style={{ color: '#b91c1c', fontWeight: 700, background: '#ffffff', borderRadius: 10, padding: '3px 7px', whiteSpace: 'nowrap', lineHeight: 'inherit' }} title="More than one hour since the logged injection; rapid insulin may still be active.">1 hr+</span>}
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
           </div>
+          <div className="onBoardMetric" aria-label="Last logged slow insulin">
+            <span className="onBoardLabel">💉 SLOW</span>
+            {basalEntries.length ? <div className="onBoardInline" style={{ background: '#ecfdf5', borderRadius: 10, padding: '5px 8px' }}>
+              <strong className="onBoardLoggedValue" style={{ color: '#0f766e' }}>S{basalEntries[0].value.toFixed(1)}</strong>
+              <span className="onBoardEventTime">{loggedClock(basalEntries[0])}</span>
+            </div> : <span className="onBoardEmpty">{timelineLoaded ? 'Not logged' : 'Loading…'}</span>}
+          </div>
           <div className="onBoardMetric" aria-label="Last logged food">
             <span className="onBoardLabel">🍴 FOOD</span>
             {foodEntries.length ? <div className={`onBoardInline${isRecentlyLogged(foodEntries[0], clockTick) ? ' isRecent' : ''}`}
@@ -755,13 +763,13 @@ export default function Dashboard() {
 
       <section className="card graphCard">
         {!live && <p role="status">{cgmLoading ? 'Connecting to CGM…' : `CGM unavailable${cgm?.error ? ` · ${cgm.error}` : ''}`}</p>}
-        <CgmChart readings={readings} hours={chartHours} events={timeline.filter(item => !isBasalEntry(item))} onSelectEvent={setSelectedEntry} />
+        <CgmChart readings={readings} hours={chartHours} events={timeline} onSelectEvent={setSelectedEntry} />
         <div className="timeAxis">{Array.from({ length: 5 }, (_, i) => <span key={i}>{new Date(clockTick - (chartHours * 3600000) * (1 - i / 4)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>)}</div>
         <div className="chartControls" aria-label="Chart time range">
           {chartRanges.map((hours) => <button key={hours} className={chartHours === hours ? 'active' : ''} onClick={() => setChartHours(hours)}>{hours}h</button>)}
         </div>
         <div className="chartLegend"><span className="low">LOW &lt;70</span><span className="inRange">IN RANGE 70–180</span><span className="high">HIGH &gt;180</span></div>
-        <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Insulin</span><span><b className="chartLogDot food">F</b> Food</span></div>
+        <div className="chartLogLegend"><span><b className="chartLogDot insulin">I</b> Rapid</span><span><b style={{ background: "#0f766e", color: "#fff", borderRadius: 12, padding: "3px 5px", fontSize: 11 }}>S</b> Slow (Lantus)</span><span><b className="chartLogDot food">F</b> Food</span></div>
 
       </section>
 
