@@ -751,7 +751,7 @@ export default function Dashboard() {
           <div className="onBoardMetric" aria-label="Last logged slow insulin">
             <span className="onBoardLabel">💉 SLOW</span>
             {basalEntries.length ? <div className="onBoardInline" style={{ background: '#ecfdf5', borderRadius: 10, padding: '5px 8px' }}>
-              <strong className="onBoardLoggedValue" style={{ color: '#0f766e' }}>S{basalEntries[0].value.toFixed(1)}</strong>
+              <strong className="onBoardLoggedValue" style={{ color: '#0f766e' }}>S{basalEntries[0].value.toString()}</strong>
               <span className="onBoardEventTime">{loggedClock(basalEntries[0])}</span>
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'Not logged' : 'Loading…'}</span>}
           </div>
