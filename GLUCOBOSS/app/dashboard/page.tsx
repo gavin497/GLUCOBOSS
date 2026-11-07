@@ -228,9 +228,9 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
         <rect x="0" y={y(70)} width={width} height={Math.max(0, height - y(70))} fill="rgba(220,38,38,.09)" />
         <line x1="0" x2={width} y1={y(180)} y2={y(180)} className="targetLine" />
         <line x1="0" x2={width} y1={y(70)} y2={y(70)} className="targetLine" />
-        {chartEvents.map((event) => {
+        {chartEvents.filter(event => !isBasalEntry(event)).map((event) => {
           const x = xForTime(event.occurredAt || event.createdAt || '');
-          return <line key={`line-${event.id}`} x1={x} x2={x} y1="8" y2={height} stroke={isBasalEntry(event) ? '#0f766e' : event.kind === 'insulin' ? '#6d28d9' : '#b45309'} strokeWidth="2.5" strokeDasharray="6 5" opacity=".78" />;
+          return <line key={`line-${event.id}`} x1={x} x2={x} y1="8" y2={height} stroke={event.kind === 'insulin' ? '#6d28d9' : '#b45309'} strokeWidth="2.5" strokeDasharray="6 5" opacity=".78" />;
         })}
         <polyline points={points} fill="none" stroke="url(#glucoseRangeGradient)" className="glucoseLine" />
         {chartReadings.map((r, i) => <circle key={i} cx={xForTime(r.timestamp)} cy={y(r.glucose)} r="4" fill="#fff" stroke={glucoseColour(r.glucose)} strokeWidth="3" />)}
@@ -748,13 +748,6 @@ export default function Dashboard() {
               {oneHourRemaining !== null && oneHourRemaining <= 0 && <span className="onBoardEventTime" style={{ color: '#b91c1c', fontWeight: 700, background: '#ffffff', borderRadius: 10, padding: '3px 7px', whiteSpace: 'nowrap', lineHeight: 'inherit' }} title="More than one hour since the logged injection; rapid insulin may still be active.">1 hr+</span>}
             </div> : <span className="onBoardEmpty">{timelineLoaded ? 'No insulin logged' : 'Loading…'}</span>}
           </div>
-          <div className="onBoardMetric" aria-label="Last logged slow insulin">
-            <span className="onBoardLabel">💉 SLOW</span>
-            {basalEntries.length ? <div className="onBoardInline" style={{ background: '#ecfdf5', borderRadius: 10, padding: '5px 8px' }}>
-              <strong className="onBoardLoggedValue" style={{ color: '#0f766e' }}>S{basalEntries[0].value.toString()}</strong>
-              <span style={{ fontWeight: 850, fontSize: 16, color: '#0f766e', whiteSpace: 'nowrap' }}>Given at {loggedClock(basalEntries[0])}</span>
-            </div> : <span className="onBoardEmpty">{timelineLoaded ? 'Not logged' : 'Loading…'}</span>}
-          </div>
           <div className="onBoardMetric" aria-label="Last logged food">
             <span className="onBoardLabel">🍴 FOOD</span>
             {foodEntries.length ? <div className={`onBoardInline${isRecentlyLogged(foodEntries[0], clockTick) ? ' isRecent' : ''}`}
@@ -842,7 +835,7 @@ export default function Dashboard() {
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
         <div className="timeline">
           {cgmTimeline.map((item, i) => <div className="timelineItem" key={`cgm-${item.time}-${i}`}><div className="timelineTime">{item.time}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}
-          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime" title={loggedDate(item)}>{loggedDate(item)}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
+          {timeline.map((item) => <div className="timelineItem" key={item.id} role="button" tabIndex={0} title="Edit or delete this entry" style={{ cursor: 'pointer' }} onClick={() => setSelectedEntry(item)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedEntry(item); }}><div className="timelineTime" title={loggedDate(item)}>{loggedDate(item)}</div><div className="timelineIcon">{item.icon}</div><div><strong>{item.title}</strong><span>{item.detail}{item.kind === 'insulin' && !isBasalEntry(item) ? ` · ${insulinElapsed(item, clockTick)}` : ''} · Tap to edit</span></div></div>)}
         </div>
       </details>}
 
