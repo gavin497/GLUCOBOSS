@@ -475,9 +475,9 @@ export default function Dashboard() {
   const latestTime = latest ? new Date(latest.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const latestTimestamp = latest ? new Date(latest.timestamp).getTime() : null;
   const latestAgeMinutes = latestTimestamp == null || Number.isNaN(latestTimestamp) ? null : Math.max(0, Math.floor((clockTick - latestTimestamp) / 60_000));
-  const stale = live && latestAgeMinutes != null && latestAgeMinutes >= 8;
+  const stale = live && latestAgeMinutes != null && latestAgeMinutes >= 7;
   const ageText = latestAgeMinutes == null ? '' : latestAgeMinutes < 1 ? '<1 min ago' : `${latestAgeMinutes} min${latestAgeMinutes === 1 ? '' : 's'} ago`;
-  const statusText = !live ? 'OFFLINE' : `${stale ? 'STALE' : 'LIVE'} · ${latestAgeMinutes != null && latestAgeMinutes < 1 ? '<1 MIN' : `${latestAgeMinutes ?? '?'} MIN${latestAgeMinutes === 1 ? '' : 'S'} AGO`}`;
+  const statusText = !live ? 'OFFLINE' : `${stale ? 'NO SIGNAL / NO READINGS' : 'LIVE'} · ${latestAgeMinutes != null && latestAgeMinutes < 1 ? '<1 MIN' : `${latestAgeMinutes ?? '?'} MIN${latestAgeMinutes === 1 ? '' : 'S'} AGO`}`;
   const statusStyle = stale ? { background: '#fee2e2', color: '#b91c1c' } : undefined;
 
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin' && !isBasalEntry(item));
