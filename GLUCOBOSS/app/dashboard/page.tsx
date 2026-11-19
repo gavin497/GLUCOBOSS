@@ -132,6 +132,8 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const [chartWidth, setChartWidth] = useState(1000);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [chartInteractive, setChartInteractive] = useState(false);
+  const lastTapRef = useRef(0);
   const height = 220;
 
   useEffect(() => {
@@ -193,6 +195,10 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
 
   return (
     <div className="chartInteractive" ref={chartWrapRef}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: "#64748b" }}>{chartInteractive ? "Explore glucose points" : "Double-tap graph to explore"}</span>
+        {chartInteractive && <button type="button" onClick={() => { setChartInteractive(false); setHoveredIndex(null); }} style={{ padding: "5px 9px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#334155" }}>Done · Scroll</button>}
+      </div>
       <div className="chartHoverReadout">
         {hoverReading ? (
           <>
@@ -206,11 +212,13 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         height={height}
-        style={{ display: 'block', width: '100%', height: `${height}px` }}
+        style={{ display: 'block', width: '100%', height: `${height}px`, touchAction: chartInteractive ? 'none' : 'pan-y' }}
         role="img"
         aria-label={`${hours} hour live glucose trend with logged insulin and food markers`}
-        onPointerMove={(e) => updateHover(e.clientX, e.currentTarget)}
-        onPointerDown={(e) => updateHover(e.clientX, e.currentTarget)}
+        onDoubleClick={() => setChartInteractive(true)}
+        onTouchEnd={() => { if (chartInteractive) return; const now = Date.now(); if (now - lastTapRef.current < 400) setChartInteractive(true); lastTapRef.current = now; }}
+        onPointerMove={(e) => { if (chartInteractive || e.pointerType === 'mouse') updateHover(e.clientX, e.currentTarget); }}
+        onPointerDown={(e) => { if (chartInteractive) updateHover(e.clientX, e.currentTarget); }}
         onPointerLeave={() => setHoveredIndex(null)}
       >
         <defs>
