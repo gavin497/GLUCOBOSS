@@ -277,6 +277,8 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
 
 export default function Dashboard() {
   const [modal, setModal] = useState<Modal>(null);
+  const [pendingLog, setPendingLog] = useState<TimelineItem | null>(null);
+  const finalSaveLock = useRef(false);
   const [tipsOpen, setTipsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<TimelineItem | null>(null);
@@ -657,6 +659,7 @@ export default function Dashboard() {
   }
 
   function closeLogModal() {
+    setPendingLog(null);
     setModal(null);
     setBasalMode(false);
     setEditingId(null);
@@ -682,7 +685,7 @@ export default function Dashboard() {
       createdAt: previous?.createdAt || new Date().toISOString(),
       occurredAt: timestampAt(selectedTime, base),
     };
-    void persistEntry(entry);
+    setPendingLog(entry);
   }
 
   function confirmFood() {
@@ -703,7 +706,7 @@ export default function Dashboard() {
       createdAt: previous?.createdAt || new Date().toISOString(),
       occurredAt: timestampAt(selectedTime, previous?.occurredAt || previous?.createdAt),
     };
-    void persistEntry(entry);
+    setPendingLog(entry);
   }
 
   function spokenNumber(text: string) {
@@ -903,6 +906,8 @@ export default function Dashboard() {
   </select>
   <p style={{ fontSize: 12, marginTop: 10, color: '#9f1239', fontWeight: 700 }}>Check current Dexcom reading and trend, recent lows, active Fiasp, exercise, illness and the clinician-approved plan before any injection. CGM history and activity do not automatically adjust this calculation. Fiasp can remain active beyond one hour.</p>
 </div><div className="compactFields"><div><label style={labelStyle} htmlFor="carbQuantity">Quantity (portions)</label><input id="carbQuantity" type="number" min="0.1" step="0.1" inputMode="decimal" style={fieldStyle} value={selectedCarbs ?? ''} onChange={(e) => setSelectedCarbs(e.target.value === '' ? null : Number(e.target.value))} /></div><div><label style={labelStyle} htmlFor="carbTime">Time</label><input id="carbTime" type="time" style={fieldStyle} value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} /></div></div><button className="secondaryButton" disabled title="Coming later">📷 Photo estimate (coming later)</button><button className="confirmButton compactConfirm" disabled={savingLog || selectedCarbs == null || selectedCarbs <= 0 || !selectedTime} onClick={confirmFood}>{editingId ? 'SAVE CHANGES' : 'CONFIRM FOOD'}</button></>}</section></div>}
+
+      {pendingLog && modal && <div className="modalBackdrop" style={{ zIndex: 10000 }} onClick={() => { if (!savingLog) setPendingLog(null); }}><section className="modalSheet compactLogModal" role="dialog" aria-modal="true" aria-label="Review and confirm log" onClick={e => e.stopPropagation()}><span className="eyebrow">FINAL CONFIRMATION</span><h2>Check before saving</h2><p style={{ fontSize: 22, fontWeight: 850 }}>{pendingLog.kind === 'insulin' ? (isBasalEntry(pendingLog) ? 'Slow insulin (Lantus)' : 'Rapid insulin') + ' · ' + pendingLog.value + ' units' : pendingLog.value + ' portions · ' + Math.round(pendingLog.value * 10) + ' g carbs'}</p>{pendingLog.foodDetails && <p>{pendingLog.foodDetails}</p>}<p><strong>Time:</strong> {loggedDate(pendingLog)}</p><p>Confirm this is what was actually given or eaten.</p><button type="button" className="secondaryButton" disabled={savingLog} onClick={() => setPendingLog(null)} style={{ width: '100%', marginBottom: 12 }}>← BACK / CHANGE</button><button type="button" className="actionButton compactConfirm" disabled={savingLog} onClick={async () => { if (finalSaveLock.current || savingLog) return; finalSaveLock.current = true; try { await persistEntry(pendingLog); } finally { finalSaveLock.current = false; } }}>{savingLog ? 'SAVING…' : 'YES, CONFIRM & SAVE'}</button></section></div>}
 
       <style>{`
         .chartControls { display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
