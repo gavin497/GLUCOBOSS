@@ -553,7 +553,20 @@ export default function Dashboard() {
     const tir = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose >= 70 && r.glucose <= 180).length / samples.length * 100) : null;
     const low = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose < 70).length / samples.length * 100) : null;
     const high = samples.length && coverage >= 70 ? Math.round(samples.filter(r => r.glucose > 180).length / samples.length * 100) : null;
-    return { label, tir, low, high, coverage, samples: samples.length, insulinUnits: insulin.reduce((total, item) => total + item.value, 0), insulinCount: insulin.length, carbGrams: carbs.reduce((total, item) => total + item.value * 10, 0), isCurrent: index === 0 };
+    const segments = [
+      {name:'Overnight', from:1320, to:480},
+      {name:'Morning', from:480, to:660},
+      {name:'Lunch', from:660, to:990},
+      {name:'Afternoon / evening', from:990, to:1320}
+    ].map(segment => {
+      const inSegment = (t: number) => { const d = new Date(t); const m = d.getHours()*60+d.getMinutes(); return segment.from > segment.to ? m >= segment.from || m < segment.to : m >= segment.from && m < segment.to; };
+      let expectedCount = 0;
+      for (let t=startMs; t<endMs; t+=300000) if(inSegment(t)) expectedCount++;
+      const group = samples.filter(r => inSegment(Date.parse(r.timestamp)));
+      const sufficient = expectedCount >= 12 && group.length >= expectedCount*.7;
+      return {name:segment.name, sufficient, low:group.length ? Math.round(group.filter(r=>r.glucose<70).length/group.length*100):0, high:group.length ? Math.round(group.filter(r=>r.glucose>180).length/group.length*100):0};
+    });
+    return { label, tir, low, high, coverage, segments, samples: samples.length, insulinUnits: insulin.reduce((total, item) => total + item.value, 0), insulinCount: insulin.length, carbGrams: carbs.reduce((total, item) => total + item.value * 10, 0), isCurrent: index === 0 };
   });
   const bestReport = reportRows.filter(row => row.tir !== null).sort((a, b) => (b.tir ?? 0) - (a.tir ?? 0))[0];
   const validReportRows = reportRows.filter(row => row.tir !== null);
@@ -868,6 +881,21 @@ export default function Dashboard() {
             </table>
           </div>
           <p style={{ fontSize: 12, color: '#526873', marginTop: 12 }}>Best period is ranked by time in range only, among periods with at least 70% estimated CGM coverage. A dash means insufficient data. Percentages are reading-based estimates, not time-weighted clinical metrics. Insulin totals include only logged rapid insulin, not basal doses; missing entries are not counted. Current periods are incomplete. No dose changes should be based on these rankings alone.</p>
+          <section aria-label="Suggestions and insights" style={{ marginTop: 24, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+            <h2>💡 Suggestions &amp; Insights</h2>
+            <p>Patterns in the displayed periods. Review these with Jazz's diabetes team; glucose patterns alone cannot establish the cause or the appropriate dose.</p>
+            {reportRows.map(row => <article key={row.label} style={{ padding: 12, marginTop: 10, border: '1px solid #dce5ea', borderRadius: 12 }}>
+              <h3 style={{ margin: '0 0 6px' }}>{row.label}{row.isCurrent ? ' · incomplete' : ''}</h3>
+              {row.tir === null ? <p>Insufficient CGM coverage for a reliable period-level assessment.</p> : <>
+                <strong>{row.tir}% in range · {row.coverage}% estimated coverage</strong>
+                {row.tir >= 90 && (row.low ?? 0) === 0 && <p>Excellent recorded time in range. Note the meals, activity and treatment routine that worked well; review missing readings before drawing conclusions.</p>}
+                {row.segments.filter(x=>x.sufficient && (x.low >= 4 || x.high >= 25)).map(x=><div key={x.name} style={{ marginTop: 10 }}><strong>{x.name}</strong>{x.low >= 4 && <p>{x.low}% of recorded readings below 70 mg/dL. {x.name === 'Overnight' ? 'Review overnight lows, basal timing, evening rapid insulin, activity and bedtime food with the diabetes team.' : 'Review meal timing, carbohydrate records, rapid insulin and activity with the diabetes team.'}</p>}{x.high >= 25 && <p>{x.high}% of recorded readings above 180 mg/dL. {x.name === 'Overnight' ? 'Review overnight glucose patterns, evening meals and basal coverage with the diabetes team.' : 'Review meal carbohydrate estimates, insulin timing and activity with the diabetes team.'}</p>}</div>)}
+                {!row.segments.some(x=>x.sufficient && (x.low>=4 || x.high>=25)) && row.tir < 90 && <p>No time block met the pattern flag thresholds. Review the detailed glucose trace and any individual lows.</p>}
+                {row.segments.some(x=>!x.sufficient) && <p style={{fontSize:12}}>Some time blocks have insufficient readings for pattern assessment.</p>}
+              </>}
+            </article>)}
+            <p style={{fontSize:12,color:'#526873'}}>Time blocks use the device local time. Flags are descriptive screening thresholds, not treatment targets or dose recommendations. Overnight combines midnight–08:00 and 22:00–midnight within each calendar period.</p>
+          </section>
         </>}
       </section>}
 
