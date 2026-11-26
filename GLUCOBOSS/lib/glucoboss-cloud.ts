@@ -59,10 +59,14 @@ async function call(path: string, init: RequestInit = {}, token?: string) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(init.headers as Record<string, string> || {}),
   };
-  const response = await fetch(`${url}${path}`, { ...init, headers, cache: 'no-store' });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(message(body, `Request failed (${response.status})`));
-  return body;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${url}${path}`, { ...init, headers, cache: 'no-store', signal: init.signal ?? controller.signal });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw Object.assign(new Error(message(body, `Request failed (${response.status})`)), { status: response.status, code: body?.error_code ?? body?.code });
+    return body;
+  } finally { clearTimeout(timeout); }
 }
 
 function saveSession(body: any): FamilySession {
@@ -118,10 +122,19 @@ export async function getSession(): Promise<FamilySession | null> {
           method: 'POST',
           body: JSON.stringify({ refresh_token: session.refresh_token }),
         });
+        const current = window.localStorage.getItem(SESSION_KEY);
+        if (!current) return null;
+        const stored = JSON.parse(current) as FamilySession;
+        if (stored.refresh_token !== session.refresh_token) return stored;
         return saveSession(data);
-      } catch {
-        signOut();
-        return null;
+      } catch (error) {
+        const e = error as { status?: number; code?: string };
+        const current = window.localStorage.getItem(SESSION_KEY);
+        if (!current) return null;
+        const stored = JSON.parse(current) as FamilySession;
+        if (stored.refresh_token !== session.refresh_token) return stored;
+        if (['refresh_token_not_found','refresh_token_already_used','session_not_found','session_expired','user_banned','user_not_found'].includes(e.code ?? '')) { signOut(); return null; }
+        throw new Error('Temporary connection or session renewal problem. Please retry; your login has been retained.');
       }
     })().finally(() => { refreshInFlight = null; });
   }
