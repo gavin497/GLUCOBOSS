@@ -897,7 +897,7 @@ export default function Dashboard() {
             <p style={{fontSize:12,color:'#526873'}}>Time blocks use the device local time. Flags are descriptive screening thresholds, not treatment targets or dose recommendations. Overnight combines midnight–08:00 and 22:00–midnight within each calendar period.</p>
           </section>
         </>}
-      </section>}
+      </section></div>}
 
       {activeView === 'timeline' &&       <details open className="card timelineCard" style={{ marginBottom: 14 }}><summary style={{ cursor: "pointer", fontWeight: 850, fontSize: 18, padding: 12 }}>Unified timeline · expand to view history</summary>
         <div className="cardHeader"><div><h2>Unified timeline</h2><p>Live glucose, insulin and food in one place · {syncStatus}</p></div></div>
