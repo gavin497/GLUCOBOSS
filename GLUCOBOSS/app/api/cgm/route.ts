@@ -32,7 +32,7 @@ function normalizeEntry(input: any): Reading | null {
   };
 }
 
-async function getNightscoutEntries(count = 300, start?: number, end?: number, allowEmpty = false) {
+async function getNightscoutEntries(count = 300, start?: number, end?: number, allowEmpty = false): Promise<{ readings: Reading[]; endpoint: string }> {
   let lastError = 'No Nightscout endpoint succeeded';
 
   for (const path of NIGHTSCOUT_ENDPOINTS) {
@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const start = Number(url.searchParams.get('start'));
     const end = Number(url.searchParams.get('end'));
-    let result;
+    let result: { readings: Reading[]; endpoint: string };
     if (requested && start > 0 && end > start && end - start <= 100 * 86400000) {
       const pages: Reading[] = [];
       let endpoint = '';
