@@ -277,6 +277,7 @@ function CgmChart({ readings, hours, events, onSelectEvent }: { readings: CgmRea
 
 export default function Dashboard() {
   const [modal, setModal] = useState<Modal>(null);
+  const [tipsOpen, setTipsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<TimelineItem | null>(null);
   const [selectedInsulin, setSelectedInsulin] = useState<number | null>(null);
@@ -491,6 +492,18 @@ export default function Dashboard() {
   const insulinEntries = timeline.filter((item) => item.kind === 'insulin' && !isBasalEntry(item));
   const foodEntries = timeline.filter((item) => item.kind === 'food');
   const basalEntries = timeline.filter(isBasalEntry);
+  const tipTime = (item: TimelineItem) => new Date(item.occurredAt || item.createdAt || '').getTime();
+  const tipRecent = timeline.filter(item => { const age = clockTick - tipTime(item); return Number.isFinite(age) && age >= 0 && age <= 4 * 3600000; }).sort((a,b) => tipTime(b)-tipTime(a));
+  const tipRapid = tipRecent.filter(item => item.kind === 'insulin' && !isBasalEntry(item));
+  const tipMinutes = tipRapid.length ? Math.floor((clockTick - tipTime(tipRapid[0])) / 60000) : null;
+  const tipFresh = live && latestAgeMinutes != null && latestAgeMinutes < 7 && latestTimestamp != null && latestTimestamp <= clockTick + 60000 && Number.isFinite(latest?.glucose) && (latest?.glucose ?? 0) >= 20;
+  const tipChanges = [15,30,60].map(minutes => {
+    const target = (latestTimestamp ?? 0) - minutes * 60000;
+    const match = readings.filter(r => Math.abs(new Date(r.timestamp).getTime()-target) <= 3*60000).sort((a,b) => Math.abs(new Date(a.timestamp).getTime()-target)-Math.abs(new Date(b.timestamp).getTime()-target))[0];
+    return {minutes, change: tipFresh && match ? currentValue-match.glucose : null};
+  });
+  const tipFalling = /↓/.test(arrow) || (tipChanges[0].change ?? 0) <= -20;
+
 
   // Compare calendar days, Monday-start calendar weeks and calendar months.
   // Local clock boundaries are intentional: families review daily insulin by date.
@@ -801,7 +814,18 @@ export default function Dashboard() {
         </article>
       </section>
 
-      <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button></section>
+      <section className="card actionNow"><div><span className="eyebrow">ACTION NOW</span><h2>Live CGM connected</h2><p>Glucose data is live. Treatment recommendations remain intentionally disabled while the clinical calculation engine is being designed and validated.</p></div><div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}><button className="voiceButton" title="Voice logging prototype" onClick={() => openNew('insulin')}>🎙️ SAY IT</button><button type="button" className="actionButton" aria-expanded={tipsOpen} onClick={() => setTipsOpen(v => !v)}>💡 TIPS</button></div></section>
+      {tipsOpen && <section className="card" aria-label="Glucose review tips" style={{ padding: 16, marginTop: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h2 style={{ margin: 0 }}>💡 TIPS · What to check now</h2><button type="button" className="secondaryButton" onClick={() => setTipsOpen(false)}>Close</button></div>
+        <p style={{ fontWeight: 800, color: !tipFresh || currentValue < 70 || (currentValue <= 100 && tipFalling) ? '#b91c1c' : '#134e4a' }}>{tipFresh ? currentValue + ' mg/dL ' + arrow + ' · ' + ageText : 'No reliable current CGM reading'}</p>
+        {!tipFresh ? <p>Check the Dexcom app and use a finger-prick meter as directed by the care plan. Do not use old readings for treatment decisions.</p> : currentValue < 70 || (currentValue <= 100 && tipFalling) ? <p><strong>Low or falling towards low.</strong> Check Jazz now and follow his prescribed low-glucose plan. Do not wait for the one-hour insulin review. Recheck according to his plan (often 15 minutes after low treatment). If he cannot swallow safely, is unconscious or has a seizure, use prescribed emergency glucagon and call emergency services.</p> : currentValue >= 250 ? <p><strong>High glucose.</strong> Review recent insulin, check ketones as directed by his high-glucose plan, and follow that plan. Seek urgent medical help for vomiting, abdominal pain, deep breathing or significant ketones. Avoid unplanned repeat insulin doses.</p> : <p>Review the glucose direction and recent food and insulin. Follow Jazz's prescribed plan; a trend alone does not determine a treatment dose.</p>}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>{tipChanges.map(x => <span key={x.minutes}><strong>{x.minutes} min:</strong> {x.change == null ? '—' : (x.change > 0 ? '+' : '') + x.change + ' mg/dL'}</span>)}</div>
+        <p><strong>Last rapid insulin:</strong> {!timelineLoaded ? 'Loading logs' : tipMinutes == null ? 'None recorded in the last 4 hours' : tipRapid[0].value + ' units · ' + tipMinutes + ' min ago'}</p>
+        {tipMinutes != null && <p><strong>One-hour review:</strong> {tipMinutes < 60 ? (60-tipMinutes) + ' min remaining' : 'Review point passed'}. Rapid insulin may remain active for several hours. This timer is not a redosing instruction.</p>}
+        <h3>Last 4 hours · recorded events</h3>
+        {!timelineLoaded ? <p>Logs are still loading.</p> : tipRecent.length ? tipRecent.map(item => <div key={item.id} style={{ padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}><strong>{loggedClock(item)}</strong> · {item.title}{item.foodDetails ? ' · ' + item.foodDetails : ''}</div>) : <p>No events recorded. Missing logs do not mean no insulin or food was given.</p>}
+        <p style={{ fontSize: 12, color: '#475569' }}>Review aid only. No personalised insulin or carbohydrate doses are calculated. Follow the diabetes team's plan; keep Dexcom alerts enabled.</p>
+      </section>}
 
       <nav aria-label="Dashboard views" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0' }}>
         {(['home', 'reports', 'timeline'] as const).map(view => <button key={view} type="button" onClick={() => setActiveView(view)} aria-pressed={activeView === view} style={{ border: '1px solid #cbd5e1', borderRadius: 12, padding: '10px 14px', fontWeight: 800, background: activeView === view ? '#123243' : '#fff', color: activeView === view ? '#fff' : '#123243' }}>{view === 'home' ? '🏠 Dashboard' : view === 'reports' ? '📊 Reports' : '🕘 Timeline'}</button>)}
