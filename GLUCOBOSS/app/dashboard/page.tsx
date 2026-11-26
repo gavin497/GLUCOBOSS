@@ -300,6 +300,7 @@ export default function Dashboard() {
   const [clockTick, setClockTick] = useState(Date.now());
   const [chartHours, setChartHours] = useState(6);
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [reportOffset, setReportOffset] = useState(0);
   const [reportHistory, setReportHistory] = useState<CgmReading[]>([]);
   const [activeView, setActiveView] = useState<'home' | 'reports' | 'timeline'>('home');
   const [reportLoading, setReportLoading] = useState(false);
@@ -458,7 +459,10 @@ export default function Dashboard() {
       try {
         const session = await getSession();
         if (!session) throw new Error('Sign in to view reports.');
-        const response = await fetch(`/api/cgm?report=${reportPeriod}`, { cache: 'no-store', headers: { Authorization: `Bearer ${session.access_token}` } });
+        const now = new Date();
+        const end = reportPeriod === 'daily' ? new Date(now.getFullYear(),now.getMonth(),now.getDate()+1-reportOffset*7) : reportPeriod === 'weekly' ? new Date(now.getFullYear(),now.getMonth(),now.getDate()-(now.getDay()+6)%7+7-reportOffset*42) : new Date(now.getFullYear(),now.getMonth()+1-reportOffset*3,1);
+        const start = reportPeriod === 'monthly' ? new Date(end.getFullYear(),end.getMonth()-3,1) : new Date(end.getFullYear(),end.getMonth(),end.getDate()-(reportPeriod === 'daily' ? 7 : 42));
+        const response = await fetch(`/api/cgm?report=${reportPeriod}&start=${start.getTime()}&end=${Math.min(end.getTime(),Date.now())}`, { cache: 'no-store', headers: { Authorization: `Bearer ${session.access_token}` } });
         if (!response.ok) throw new Error('CGM history unavailable.');
         const result = await response.json() as CgmResponse;
         if (!result.ok) throw new Error(result.error || 'CGM history unavailable.');
@@ -468,7 +472,7 @@ export default function Dashboard() {
     }
     void loadReport();
     return () => { cancelled = true; };
-  }, [reportPeriod, activeView]);
+  }, [reportPeriod, reportOffset, activeView]);
 
   useEffect(() => {
     let active = true;
@@ -510,7 +514,8 @@ export default function Dashboard() {
   // Compare calendar days, Monday-start calendar weeks and calendar months.
   // Local clock boundaries are intentional: families review daily insulin by date.
   const reportSource = reportHistory;
-  const reportRows = Array.from({ length: reportPeriod === 'daily' ? 7 : reportPeriod === 'weekly' ? 6 : 3 }, (_, index) => {
+  const reportRows = Array.from({ length: reportPeriod === 'daily' ? 7 : reportPeriod === 'weekly' ? 6 : 3 }, (_, rowIndex) => {
+    const index = rowIndex + reportOffset * (reportPeriod === 'daily' ? 7 : reportPeriod === 'weekly' ? 6 : 3);
     const nowDate = new Date(clockTick);
     let start: Date;
     let end: Date;
@@ -836,12 +841,12 @@ export default function Dashboard() {
       {activeView === 'reports' && <section className="card" aria-label="Glucose and insulin reports" style={{ margin: '14px 0', padding: 18 }}>
         <h2 style={{ margin: '0 0 8px' }}>📊 Reports</h2>
         <div role="tablist" aria-label="Report period" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-          {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => setReportPeriod(period)} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
+          {(['daily', 'weekly', 'monthly'] as const).map(period => <button type="button" role="tab" aria-selected={reportPeriod === period} key={period} onClick={() => { setReportPeriod(period); setReportOffset(0); }} style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #cbd5e1', fontWeight: 800, background: reportPeriod === period ? '#10232f' : '#fff', color: reportPeriod === period ? '#fff' : '#10232f' }}>{period[0].toUpperCase() + period.slice(1)}</button>)}
         </div>
-        <p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>{reportPeriod === 'daily' ? 'Today and the previous six calendar days' : reportPeriod === 'weekly' ? 'This week and five previous Monday–Sunday weeks' : 'This month and the previous two calendar months'} · target 70–180 mg/dL</p>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}><button type="button" className="secondaryButton" onClick={() => setReportOffset(v => v+1)}>← Older</button><span>Page {reportOffset+1}</span><button type="button" className="secondaryButton" disabled={reportOffset===0} onClick={() => setReportOffset(v => Math.max(0,v-1))}>Newer →</button></div><p style={{ fontSize: 13, color: '#526873', marginBottom: 12 }}>{reportOffset > 0 ? 'Historical periods' : reportPeriod === 'daily' ? 'Today and the previous six calendar days' : reportPeriod === 'weekly' ? 'This week and five previous Monday–Sunday weeks' : 'This month and the previous two calendar months'} · target 70–180 mg/dL</p>
         {reportLoading ? <p>Loading historical CGM readings…</p> : reportError ? <p role="alert" style={{ color: '#b91c1c' }}>{reportError}</p> : <>
           <div style={{ padding: '14px 16px', borderRadius: 12, background: '#f1f5f9', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: '#526873', fontWeight: 750 }}>Average time in range · {reportPeriod === 'daily' ? 'last 7 days' : reportPeriod === 'weekly' ? 'last 6 weeks' : 'last 3 months'}</div>
+            <div style={{ fontSize: 13, color: '#526873', fontWeight: 750 }}>Average time in range · displayed periods</div>
             <strong style={{ fontSize: 30, color: '#087c70' }}>{averageTimeInRange === null ? '—' : `${averageTimeInRange}%`}</strong>
             <div style={{ fontSize: 12, color: '#526873' }}>{validReportRows.length} of {reportRows.length} periods with sufficient CGM coverage · equal-weight average of period percentages</div>
           </div>
