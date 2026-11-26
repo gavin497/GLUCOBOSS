@@ -32,12 +32,12 @@ function normalizeEntry(input: any): Reading | null {
   };
 }
 
-async function getNightscoutEntries(count = 300) {
+async function getNightscoutEntries(count = 300, start?: number, end?: number, allowEmpty = false) {
   let lastError = 'No Nightscout endpoint succeeded';
 
   for (const path of NIGHTSCOUT_ENDPOINTS) {
     try {
-      const response = await fetch(`${NIGHTSCOUT_BASE}${path}?count=${count}`, {
+      const response = await fetch(`${NIGHTSCOUT_BASE}${path}?count=${count}${start === undefined ? '' : '&find[date][$gte]=' + start}${end === undefined ? '' : '&find[date][$lt]=' + end}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
@@ -54,7 +54,7 @@ async function getNightscoutEntries(count = 300) {
         .filter((r: Reading | null): r is Reading => Boolean(r))
         .sort((a: Reading, b: Reading) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      if (readings.length) return { readings, endpoint: path };
+      if (readings.length || (allowEmpty && Array.isArray(source) && source.length === 0)) return { readings, endpoint: path };
       lastError = `${path} returned no recognizable glucose readings`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
@@ -87,7 +87,25 @@ export async function GET(request: Request) {
   try {
     const requested = new URL(request.url).searchParams.get('report');
     const count = requested === 'daily' ? 2300 : requested === 'weekly' ? 12500 : requested === 'monthly' ? 27000 : 300;
-    const { readings, endpoint } = await getNightscoutEntries(count);
+    const url = new URL(request.url);
+    const start = Number(url.searchParams.get('start'));
+    const end = Number(url.searchParams.get('end'));
+    let result;
+    if (requested && start > 0 && end > start && end - start <= 100 * 86400000) {
+      const pages: Reading[] = [];
+      let endpoint = '';
+      // Small date-bounded requests avoid server-side count caps.
+      for (let cursor = start; cursor < end; cursor += 2 * 86400000) {
+        const stop = Math.min(end, cursor + 2 * 86400000);
+        const page = await getNightscoutEntries(700, cursor, stop, true);
+        endpoint = page.endpoint;
+        pages.push(...page.readings.filter(r => Date.parse(r.timestamp) >= cursor && Date.parse(r.timestamp) < stop));
+      }
+      result = { readings: [...new Map(pages.map(r => [r.timestamp, r])).values()].sort((a,b) => Date.parse(a.timestamp)-Date.parse(b.timestamp)), endpoint };
+    } else {
+      result = await getNightscoutEntries(count);
+    }
+    const { readings, endpoint } = result;
     const latest = readings[readings.length - 1];
     const previous = readings.length > 1 ? readings[readings.length - 2] : null;
 
